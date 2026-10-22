@@ -62,8 +62,9 @@ def test_duplicate_content_is_processed_once(tmp_path):
     assert result.counts["total"] == 2
     assert result.counts["duplicate"] == 1
     assert result.counts[STATUS_DONE] == 2
-    # Two unique posters, three backend images each (header, number, canvas).
-    assert backend.images_seen == 6
+    # Two unique posters, five backend images each (header, three route crop
+    # paddings, canvas).
+    assert backend.images_seen == 10
     store = ManifestStore(result.manifest_path)
     with store.connection() as conn:
         duplicates = conn.execute("SELECT COUNT(*) AS n FROM paths WHERE is_primary = 0").fetchone()["n"]

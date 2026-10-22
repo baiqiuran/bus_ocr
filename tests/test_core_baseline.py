@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -22,14 +23,26 @@ def _settings() -> PipelineSettings:
     return PipelineSettings(current_stop="安平小区", route_hints=DEFAULT_ROUTE_HINTS)
 
 
-def test_route_blocks_and_columns_match_golden(anping_east_path, golden_east):
-    rgb = np.asarray(Image.open(anping_east_path).convert("RGB"))
+@pytest.mark.parametrize(
+    ("poster", "fixture"),
+    [
+        ("安平小区-东-01.jpg", "anping_east01_raw.json"),
+        ("安平小区-西-01.jpg", "anping_west01_raw.json"),
+        ("安平小区-西-02.jpg", "anping_west02_raw.json"),
+    ],
+)
+def test_route_blocks_and_columns_match_golden(anping_sample_dir, poster, fixture):
+    path = anping_sample_dir / poster
+    if not path.exists():
+        pytest.skip(f"fixture image is not available: {poster}")
+    golden = json.loads((ROOT / "tests" / "fixtures" / fixture).read_text(encoding="utf-8"))
+    rgb = np.asarray(Image.open(path).convert("RGB"))
     settings = _settings()
     blocks = detect_route_blocks(rgb, settings.layout)
-    assert [[int(a), int(b)] for a, b in blocks] == golden_east["route_blocks"]
+    assert [[int(a), int(b)] for a, b in blocks] == golden["route_blocks"]
 
     for index, (route_y0, route_y1) in enumerate(blocks):
-        entry = golden_east["entries"][index]
+        entry = golden["entries"][index]
         next_start = blocks[index + 1][0] if index + 1 < len(blocks) else None
         row_y0, row_y1, columns, _ = locate_stop_band(rgb, route_y1, next_start, settings.layout)
         assert [row_y0, row_y1] == entry["row"]

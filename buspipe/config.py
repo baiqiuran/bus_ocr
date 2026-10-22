@@ -33,6 +33,15 @@ DIRECTION_TOKENS = ("北", "南", "东", "西")
 class LayoutSettings:
     route_x0: int = 300
     route_x1: int = 680
+    # Many templates place the number further right than the projection window.
+    # The projection only detects the row; the actual glyph extent is re-measured
+    # inside each block before OCR.
+    route_scan_x1: int = 1600
+    route_merge_gap: int = 60
+    route_merge_min_width_ratio: float = 0.5
+    route_fragment_min_density: float = 0.3
+    route_frame_min_width_ratio: float = 0.8
+    landscape_min_column_aspect: float = 2.5
     stop_x0: int = 300
     stop_x1: int = 4080
     row_project_x0: int = 700
@@ -89,7 +98,7 @@ class PipelineSettings:
     layout: LayoutSettings = field(default_factory=LayoutSettings)
     canvas: CanvasSettings = field(default_factory=CanvasSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
-    pipeline_version: str = "2.0"
+    pipeline_version: str = "2.2"
     model_version: str = "rapidocr-default"
     review_low_score: float = 0.75
     bidirectional_min_similarity: float = 0.9

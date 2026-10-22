@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import threading
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Protocol, Sequence
 
@@ -253,6 +254,65 @@ def join_items(items: list[dict[str, Any]]) -> tuple[str, float]:
     weights = [max(1.0, item["y1"] - item["y0"]) for item in items]
     score = sum(item["score"] * w for item, w in zip(items, weights)) / sum(weights)
     return text, float(score)
+
+
+# RapidOCR's detector is sensitive to the margin around a single huge glyph.
+# Tight crops read some numbers and padded crops read others, so the route
+# number is recognised at three paddings and the results vote.
+ROUTE_NUMBER_PADDINGS: tuple[tuple[int, int], ...] = ((0, 0), (15, 5), (25, 10))
+
+
+def route_number_boxes(
+    block: tuple[int, int],
+    bounds: tuple[int, int],
+    image_shape: tuple[int, ...],
+) -> list[tuple[int, int, int, int]]:
+    y0, y1 = block
+    x0, x1 = bounds
+    height, width = image_shape[:2]
+    return [
+        (
+            max(0, x0 - pad_x),
+            max(0, y0 - pad_y),
+            min(width, x1 + 1 + pad_x),
+            min(height, y1 + 1 + pad_y),
+        )
+        for pad_y, pad_x in ROUTE_NUMBER_PADDINGS
+    ]
+
+
+def vote_route_items(
+    candidates: Sequence[Sequence[dict[str, Any]]],
+    min_score: float = 0.8,
+) -> list[dict[str, Any]]:
+    """Pick the most consistent high-confidence reading across crop paddings."""
+    scored: list[tuple[str, float, list[dict[str, Any]]]] = []
+    for items in candidates:
+        text, score = join_items(list(items))
+        if text:
+            scored.append((text, score, list(items)))
+    if not scored:
+        return []
+    confident = [candidate for candidate in scored if candidate[1] >= min_score]
+    pool = confident or scored
+    # Route identifiers are numeric or alphanumeric (K1, 通学专线2).  A crop
+    # padding that misses the glyphs can instead read a neighbouring stop name,
+    # so numeric readings win whenever any are present.
+    numeric = [candidate for candidate in pool if re.search(r"[0-9A-Za-z]", candidate[0])]
+    if numeric:
+        pool = numeric
+    counts = Counter(text for text, _, _ in pool)
+    best = max(
+        counts,
+        key=lambda text: (
+            counts[text],
+            max(score for candidate, score, _ in pool if candidate == text),
+        ),
+    )
+    for text, _, items in pool:
+        if text == best:
+            return items
+    return []
 
 
 def _red_ratio(img: np.ndarray, col: dict[str, Any], settings: OcrSettings) -> float:

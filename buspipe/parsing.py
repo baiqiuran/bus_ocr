@@ -32,15 +32,37 @@ def pick_route_number(
     poster_name: str,
     block_index: int,
 ) -> str:
+    # Group boxes by overlapping baselines first: a detector may split K1 into
+    # K and 1 and return them with slightly different top coordinates.
+    lines: list[list[dict[str, Any]]] = []
+    for item in sorted(items, key=lambda it: (it["y0"], it["x0"])):
+        for line in lines:
+            anchor = line[0]
+            overlap = min(item["y1"], anchor["y1"]) - max(item["y0"], anchor["y0"])
+            min_height = max(1, min(item["y1"] - item["y0"], anchor["y1"] - anchor["y0"]))
+            if overlap >= min_height * 0.5:
+                line.append(item)
+                break
+        else:
+            lines.append([item])
+    readings = [
+        ("".join(it["text"] for it in sorted(line, key=lambda it: it["x0"])),
+         min(float(it["score"]) for it in line))
+        for line in lines
+    ]
+    readings.extend((item["text"], float(item["score"])) for item in items)
     candidates = []
-    for item in items:
-        text = item["text"].replace("O", "0").replace("o", "0").replace("l", "1").replace("I", "1")
-        digits = re.sub(r"\D", "", text)
-        if digits:
-            candidates.append((len(digits), item["score"], digits))
+    for raw, score in readings:
+        text = re.sub(r"\s+", "", raw).replace("（", "(").split("(", 1)[0]
+        match = re.fullmatch(r"([A-Za-z\u4e00-\u9fff]*?)([0-9OoIl]+)(?:路)?", text)
+        if match:
+            prefix, number = match.groups()
+            number = number.translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1"}))
+            candidates.append((len(number), len(prefix), score, prefix.upper() + number))
+        elif re.fullmatch(r"[\u4e00-\u9fff]+(?:专线|环线)", text):
+            candidates.append((0, len(text), score, text))
     if candidates:
-        candidates.sort(key=lambda z: (z[0], z[1]), reverse=True)
-        return candidates[0][2]
+        return max(candidates, key=lambda z: z[:3])[3]
     known = route_hints.get(poster_name)
     if known and block_index < len(known):
         return known[block_index]

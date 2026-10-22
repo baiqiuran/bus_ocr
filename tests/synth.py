@@ -57,7 +57,9 @@ def make_poster(
         route_y1 = route_y0 + ROUTE_HEIGHT
         draw.rectangle([320, route_y0, 660, route_y1], fill=RED)
         route_number = routes[block % len(routes)]
-        draw.rectangle([310, route_y0 + 5, 310 + route_number * 4, route_y0 + 8], fill=BLUE)
+        # Keep the fake route marker inside the red number block so it is still
+        # visible when the extractor crops tightly to the glyph extent.
+        draw.rectangle([330, route_y0 + 5, 330 + route_number * 4, route_y0 + 8], fill=BLUE)
         draw.rectangle(
             [700, route_y0 + 2, 700 + (10 if header_anomaly else 4), route_y0 + 5],
             fill=GREEN,
@@ -176,7 +178,8 @@ class SyntheticOcrBackend:
         width = _color_width(image, BLUE)
         if width <= 0:
             return None
-        return max(1, round(width / 4))
+        # JPEG shaves roughly one pixel from each end of the thin marker.
+        return max(1, round((width + 1) / 4))
 
     def _one(self, image: np.ndarray) -> list[dict]:
         if _has_color(image, GREEN):

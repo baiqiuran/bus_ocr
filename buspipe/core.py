@@ -16,8 +16,22 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from buspipe.config import PipelineSettings, poster_direction
-from buspipe.layout import detect_route_blocks, locate_stop_band
-from buspipe.ocr import OcrBackend, OcrParams, OcrStats, dedup_items, ocr_regions, recognize_columns
+from buspipe.layout import (
+    detect_route_blocks,
+    locate_stop_band,
+    make_red_mask,
+    route_number_bounds,
+)
+from buspipe.ocr import (
+    OcrBackend,
+    OcrParams,
+    OcrStats,
+    dedup_items,
+    ocr_regions,
+    recognize_columns,
+    route_number_boxes,
+    vote_route_items,
+)
 from buspipe.parsing import assemble_stops, normalize_for_compare, parse_header
 
 
@@ -30,6 +44,10 @@ class BlockCheckpoint(Protocol):
 
 
 EventSink = Callable[[str, dict[str, Any]], None]
+
+
+class UnsupportedTemplateError(RuntimeError):
+    """The poster is a different board type than the multi-route stop sheet."""
 
 
 class PosterExtractor:
@@ -64,7 +82,15 @@ class PosterExtractor:
         current_stop = station if station is not None else settings.current_stop
         rgb = np.asarray(Image.open(path).convert("RGB"))
         height, width, _ = rgb.shape
-        blocks = detect_route_blocks(rgb, settings.layout)
+        red = make_red_mask(rgb)
+        try:
+            blocks = detect_route_blocks(rgb, settings.layout)
+        except RuntimeError:
+            if width > height:
+                raise UnsupportedTemplateError(
+                    f"unsupported landscape next-stop board ({width}x{height})"
+                ) from None
+            raise
         poster_name = path.stem
         direction = poster_direction(poster_name)
         entries: list[dict[str, Any]] = []
@@ -96,25 +122,55 @@ class PosterExtractor:
                     continue
 
             next_start = blocks[index + 1][0] if index + 1 < len(blocks) else None
+            number_x0, number_x1 = route_number_bounds(
+                red, (route_y0, route_y1), settings.layout
+            )
+            # Start the header to the right of the number's real extent.  The
+            # old fixed 690px edge clipped wide numbers into the header OCR.
+            header_x0 = min(3350, max(690, number_x1 + 20))
             try:
-                row_y0, row_y1, columns, row_debug = locate_stop_band(
-                    rgb, route_y1, next_start, settings.layout
-                )
-                header_items, number_items, time_items, date_items = [
+                try:
+                    row_y0, row_y1, columns, row_debug = locate_stop_band(
+                        rgb, route_y1, next_start, settings.layout
+                    )
+                except RuntimeError:
+                    if width > height:
+                        raise UnsupportedTemplateError(
+                            f"unsupported landscape next-stop board ({width}x{height})"
+                        ) from None
+                    raise
+                # Next-stop boards carry one large column or a horizontal name,
+                # rather than a row of tall vertical stop-name columns.
+                # Count projected columns before wide-column recovery: one
+                # large next-stop name must not turn into several fake stops.
+                if width > height and (
+                    row_debug["raw_column_count"] <= 1
+                    or row_debug["raw_column_median_aspect"] < settings.layout.landscape_min_column_aspect
+                ):
+                    raise UnsupportedTemplateError(
+                        f"unsupported landscape next-stop board ({width}x{height})"
+                    )
+                boxes = [
+                    (header_x0, max(0, route_y0 - 30), 3350, route_y1 + 70),
+                    (3300, max(0, route_y0 - 30), 4080, route_y1 + 80),
+                    (3200, max(0, row_y1 - 120), 4080, min(height, row_y1 + 100)),
+                    *route_number_boxes(
+                        (route_y0, route_y1), (number_x0, number_x1), rgb.shape
+                    ),
+                ]
+                header_items, time_items, date_items, *number_candidates = [
                     dedup_items(items)
                     for items in ocr_regions(
                         rgb,
-                        [
-                            (690, max(0, route_y0 - 30), 3350, route_y1 + 70),
-                            (300, max(0, route_y0 - 20), 700, route_y1 + 20),
-                            (3300, max(0, route_y0 - 30), 4080, route_y1 + 80),
-                            (3200, max(0, row_y1 - 120), 4080, min(height, row_y1 + 100)),
-                        ],
+                        boxes,
                         self.backend,
                         OcrParams.from_settings(settings.ocr),
                         self.stats,
                     )
                 ]
+                number_items = vote_route_items(number_candidates)
+            except UnsupportedTemplateError:
+                raise
             except Exception as exc:  # keep going and report the block
                 self._emit("block_failed", poster=poster_name, block_index=index, error=str(exc))
                 entries.append(

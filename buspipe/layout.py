@@ -45,22 +45,87 @@ def make_red_mask(rgb: np.ndarray) -> np.ndarray:
 
 
 def detect_route_blocks(rgb: np.ndarray, settings: LayoutSettings) -> list[tuple[int, int]]:
-    """Find the large red route numbers in the left margin."""
+    """Find the large red route numbers in the left margin.
+
+    A route title can wrap onto two lines (e.g. a shuttle line plus its
+    parenthetical campus name).  Nearby red runs are therefore merged before
+    the height filter so the two lines are treated as one route block.
+    """
     red = make_red_mask(rgb)
     col_count = red[:, settings.route_x0:settings.route_x1].sum(axis=1)
     rows = np.where(col_count > 5)[0]
     runs = group_indices(rows, max_gap=5)
-    height = rgb.shape[0]
-    blocks = [
-        (a, b)
-        for a, b in runs
-        if settings.route_min_height <= b - a + 1 <= settings.route_max_height
-        and a > settings.route_top_margin
-        and b < height - settings.route_bottom_margin
-    ]
+    height, width = red.shape
+    candidates: list[tuple[int, int]] = []
+    for a, b in runs:
+        if a <= settings.route_top_margin or b >= height - settings.route_bottom_margin:
+            continue
+        # Page borders can sit just above the first number. Identify their
+        # page-wide horizontal strokes independently of the title's height.
+        if red[a:b + 1].sum(axis=1).max() >= width * settings.route_frame_min_width_ratio:
+            continue
+        if b - a + 1 < settings.route_min_height:
+            x0, x1 = route_number_bounds(red, (a, b), settings)
+            fragment = red[a:b + 1, x0:x1 + 1]
+            # Hollow stop symbols can be close to the title, but are much less
+            # dense than red glyphs. Do not merge them into the route header.
+            if not fragment.size or fragment.mean() < settings.route_fragment_min_density:
+                continue
+        candidates.append((a, b))
+    merged: list[tuple[int, int]] = []
+    for a, b in candidates:
+        if merged and a - merged[-1][1] <= settings.route_merge_gap:
+            previous_x0, previous_x1 = route_number_bounds(red, merged[-1], settings)
+            x0, x1 = route_number_bounds(red, (a, b), settings)
+            widths = (previous_x1 - previous_x0 + 1, x1 - x0 + 1)
+            overlap = min(previous_x1, x1) - max(previous_x0, x0) + 1
+            # A narrow red current-stop glyph is not a second title line.
+            if (
+                min(widths) >= max(widths) * settings.route_merge_min_width_ratio
+                and overlap >= min(widths) * settings.route_merge_min_width_ratio
+            ):
+                merged[-1] = (merged[-1][0], b)
+                continue
+        merged.append((a, b))
+    blocks = []
+    for a, b in merged:
+        block_height = b - a + 1
+        if not settings.route_min_height <= block_height <= settings.route_max_height:
+            continue
+        has_full_height_line = any(
+            a <= start <= end <= b and end - start + 1 >= settings.route_min_height
+            for start, end in candidates
+        )
+        if not has_full_height_line:
+            x0, x1 = route_number_bounds(red, (a, b), settings)
+            # Stacked red current-stop characters also form nearby short runs.
+            # A title made only of small lines must span horizontally instead.
+            if x1 - x0 + 1 < block_height:
+                continue
+        blocks.append((a, b))
     if not blocks:
         raise RuntimeError("No route-number blocks found")
     return blocks
+
+
+def route_number_bounds(
+    red: np.ndarray,
+    block: tuple[int, int],
+    settings: LayoutSettings,
+) -> tuple[int, int]:
+    """Horizontal extent of the red glyphs inside one route row band.
+
+    ``route_x0:route_x1`` is only a projection window: on wider templates the
+    number continues past it.  Cropping at the window edge truncates digits
+    (80 -> 8, 102 -> 10), so OCR uses the measured extent instead.
+    """
+    y0, y1 = block
+    width = red.shape[1]
+    limit = min(width, settings.route_scan_x1)
+    columns = np.where(red[y0:y1 + 1, settings.route_x0:limit].sum(axis=0) > 2)[0]
+    if columns.size == 0:
+        return min(settings.route_x0, width), min(settings.route_x1, width)
+    return int(columns.min()) + settings.route_x0, int(columns.max()) + settings.route_x0
 
 
 def detect_stop_row(
@@ -117,7 +182,14 @@ def _column_candidate(mask: np.ndarray, x0: int, x1: int, row_height: int) -> di
     return {"x0": int(x0), "x1": int(x1), "y0": int(ys[0]), "y1": int(ys[-1]), "width": width, "height": height}
 
 
-def detect_stop_columns(rgb: np.ndarray, row_y0: int, row_y1: int, settings: LayoutSettings) -> list[dict[str, Any]]:
+def detect_stop_columns(
+    rgb: np.ndarray,
+    row_y0: int,
+    row_y1: int,
+    settings: LayoutSettings,
+    *,
+    split_wide: bool = True,
+) -> list[dict[str, Any]]:
     strip = rgb[row_y0:row_y1 + 1, settings.stop_x0:settings.stop_x1]
     mask = make_mask(strip)
     col_count = mask.sum(axis=0)
@@ -140,7 +212,7 @@ def detect_stop_columns(rgb: np.ndarray, row_y0: int, row_y1: int, settings: Lay
     while queue:
         col = queue.pop(0)
         width = col["width"]
-        if width > max(90, median_width * 1.65):
+        if split_wide and width > max(90, median_width * 1.65):
             s, e = col["x0"], col["x1"]
             lo = s + int(width * 0.25)
             hi = s + int(width * 0.75)
@@ -160,7 +232,7 @@ def detect_stop_columns(rgb: np.ndarray, row_y0: int, row_y1: int, settings: Lay
     guarded: list[dict[str, Any]] = []
     for col in split_columns:
         width = col["width"]
-        if width > 160:
+        if split_wide and width > 160:
             s, e = col["x0"], col["x1"]
             parts = max(2, min(12, int(round(width / 72))))
             step = width / parts
@@ -213,6 +285,12 @@ def locate_stop_band(
                 row_y0, row_y1 = trimmed_top, trimmed_bottom
                 columns = trimmed_columns
                 row_debug["trimmed"] = [int(row_y0), int(row_y1)]
+    raw_columns = detect_stop_columns(rgb, row_y0, row_y1, settings, split_wide=False)
+    row_debug["raw_column_count"] = len(raw_columns)
+    row_debug["raw_column_median_aspect"] = float(np.median([
+        (c["y1"] - c["y0"] + 1) / (c["x1"] - c["x0"] + 1)
+        for c in raw_columns
+    ])) if raw_columns else 0.0
     return row_y0, row_y1, columns, row_debug
 
 

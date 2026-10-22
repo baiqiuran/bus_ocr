@@ -35,12 +35,12 @@ def test_resume_after_block_failure_reuses_completed_blocks(tmp_path):
 
     first = run_batch(source, config, ocr_backend=flaky)
     assert first.counts[STATUS_FAILED] == 1
-    assert backend.images_seen == 6  # blocks 1 and 3 only
+    assert backend.images_seen == 10  # blocks 1 and 3 only, five images each
 
     second = run_batch(source, config, ocr_backend=flaky)
     assert second.counts[STATUS_DONE] == 1
-    # Only block 2 is OCR'd again: 3 images, not 9.
-    assert backend.images_seen == 9
+    # Only block 2 is OCR'd again: five images, not fifteen.
+    assert backend.images_seen == 15
     assert second.cache["block_hits"] == 2
     payload = json.loads(Path(next(iter(second.poster_files.values()))).read_text(encoding="utf-8"))
     assert [entry["route"] for entry in payload["entries"]] == ["1", "2", "3"]
