@@ -116,6 +116,12 @@ def poster_direction(name: str) -> str:
         if f"-{token}-" in name:
             return token
     parts = name.split("-")
+    # Some files append artwork notes to the direction segment, e.g.
+    # 安铺村-北，小灯箱80x130CM-01.jpg; the segment still starts with 北.
+    for part in parts[1:]:
+        for token in DIRECTION_TOKENS:
+            if part.startswith(token):
+                return token
     return parts[1] if len(parts) >= 3 else "未知"
 
 

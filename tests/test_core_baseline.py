@@ -92,6 +92,14 @@ def test_stop_assembly_matches_golden(golden_east):
         ) == entry["next_stop_matches"]
 
 
+def test_direction_with_artwork_note():
+    from buspipe.config import poster_direction, poster_station
+
+    name = "安铺村-北，小灯箱80x130CM-01"
+    assert poster_direction(name) == "北"
+    assert poster_station(name) == "安铺村"
+
+
 def test_cli_help_and_missing_poster():
     completed = subprocess.run(
         [sys.executable, "extract.py", "--help"],
