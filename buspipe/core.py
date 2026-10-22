@@ -1,0 +1,233 @@
+"""Reusable single-poster extraction core.
+
+``PosterExtractor.extract`` performs layout projection, header OCR, column OCR
+and business assembly.  It has no printing, environment reads or module-level
+mutable state; the CLI passes an event sink for progress output and the batch
+runner passes a block checkpoint for resumability.
+"""
+
+from __future__ import annotations
+
+import copy
+from pathlib import Path
+from typing import Any, Callable, Protocol, Sequence
+
+import numpy as np
+from PIL import Image, ImageDraw
+
+from buspipe.config import PipelineSettings, poster_direction
+from buspipe.layout import detect_route_blocks, locate_stop_band
+from buspipe.ocr import OcrBackend, OcrParams, OcrStats, dedup_items, ocr_regions, recognize_columns
+from buspipe.parsing import assemble_stops, normalize_for_compare, parse_header
+
+
+class BlockCheckpoint(Protocol):
+    def load(self, block_index: int) -> dict[str, Any] | None:
+        ...
+
+    def store(self, block_index: int, entry: dict[str, Any]) -> None:
+        ...
+
+
+EventSink = Callable[[str, dict[str, Any]], None]
+
+
+class PosterExtractor:
+    def __init__(
+        self,
+        backend: OcrBackend,
+        settings: PipelineSettings,
+        stats: OcrStats | None = None,
+        checkpoint: BlockCheckpoint | None = None,
+        event_sink: EventSink | None = None,
+        debug_dir: Path | None = None,
+    ) -> None:
+        self.backend = backend
+        self.settings = settings
+        self.stats = stats
+        self.checkpoint = checkpoint
+        self.event_sink = event_sink
+        self.debug_dir = debug_dir
+
+    def _emit(self, event: str, **payload: Any) -> None:
+        if self.event_sink:
+            self.event_sink(event, payload)
+
+    def extract(
+        self,
+        path: Path | str,
+        station: str | None = None,
+        only_blocks: set[int] | None = None,
+    ) -> dict[str, Any]:
+        path = Path(path)
+        settings = self.settings
+        current_stop = station if station is not None else settings.current_stop
+        rgb = np.asarray(Image.open(path).convert("RGB"))
+        height, width, _ = rgb.shape
+        blocks = detect_route_blocks(rgb, settings.layout)
+        poster_name = path.stem
+        direction = poster_direction(poster_name)
+        entries: list[dict[str, Any]] = []
+
+        for index, (route_y0, route_y1) in enumerate(blocks):
+            if only_blocks is not None and index not in only_blocks:
+                continue
+            self._emit(
+                "block_start",
+                poster=poster_name,
+                block_index=index,
+                block_count=len(blocks),
+                route_y0=int(route_y0),
+                route_y1=int(route_y1),
+            )
+            if self.checkpoint is not None:
+                cached = self.checkpoint.load(index)
+                if cached is not None:
+                    entry = copy.deepcopy(cached)
+                    entry.setdefault("cache_hit", True)
+                    entries.append(entry)
+                    self._emit(
+                        "block_cached",
+                        poster=poster_name,
+                        block_index=index,
+                        route=entry.get("route", ""),
+                        stop_count=entry.get("stop_count", 0),
+                    )
+                    continue
+
+            next_start = blocks[index + 1][0] if index + 1 < len(blocks) else None
+            try:
+                row_y0, row_y1, columns, row_debug = locate_stop_band(
+                    rgb, route_y1, next_start, settings.layout
+                )
+                header_items, number_items, time_items, date_items = [
+                    dedup_items(items)
+                    for items in ocr_regions(
+                        rgb,
+                        [
+                            (690, max(0, route_y0 - 30), 3350, route_y1 + 70),
+                            (300, max(0, route_y0 - 20), 700, route_y1 + 20),
+                            (3300, max(0, route_y0 - 30), 4080, route_y1 + 80),
+                            (3200, max(0, row_y1 - 120), 4080, min(height, row_y1 + 100)),
+                        ],
+                        self.backend,
+                        OcrParams.from_settings(settings.ocr),
+                        self.stats,
+                    )
+                ]
+            except Exception as exc:  # keep going and report the block
+                self._emit("block_failed", poster=poster_name, block_index=index, error=str(exc))
+                entries.append(
+                    {
+                        "poster": poster_name,
+                        "direction": direction,
+                        "block_index": index,
+                        "route": "",
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            header = parse_header(
+                header_items,
+                number_items,
+                time_items,
+                date_items,
+                settings.route_hints,
+                poster_name,
+                index,
+                row_y0,
+            )
+            try:
+                recognized = recognize_columns(
+                    rgb,
+                    columns,
+                    row_y0,
+                    row_y1,
+                    self.backend,
+                    settings.ocr,
+                    settings.canvas,
+                    self.stats,
+                )
+            except Exception as exc:
+                self._emit("block_failed", poster=poster_name, block_index=index, error=str(exc))
+                entries.append(
+                    {
+                        "poster": poster_name,
+                        "direction": direction,
+                        "block_index": index,
+                        "route": header.get("route", ""),
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            stops, current_index = assemble_stops(recognized, current_stop, header["next_stop"])
+            expected_next = ""
+            if current_index is not None and current_index + 1 < len(stops):
+                expected_next = stops[current_index + 1]["display_name"]
+            next_matches = bool(header["next_stop"]) and normalize_for_compare(
+                expected_next
+            ) == normalize_for_compare(header["next_stop"])
+
+            entry = {
+                "poster": poster_name,
+                "direction": direction,
+                "block_index": index,
+                **header,
+                "stop_count": len(stops),
+                "current_index": current_index,
+                "next_stop_matches": next_matches,
+                "expected_next": expected_next,
+                "header_items": header_items,
+                "number_items": number_items,
+                "time_items": time_items,
+                "date_items": date_items,
+                "stops": stops,
+                "row": [int(row_y0), int(row_y1)],
+                "row_debug": row_debug,
+                "columns": [{k: v for k, v in col.items() if k != "items"} for col in recognized],
+            }
+            entries.append(entry)
+            if self.checkpoint is not None:
+                self.checkpoint.store(index, entry)
+
+            self._emit(
+                "block_done",
+                poster=poster_name,
+                block_index=index,
+                route=entry["route"],
+                stop_count=len(stops),
+                column_count=len(columns),
+                row=[int(row_y0), int(row_y1)],
+            )
+            if self.debug_dir is not None:
+                self._draw_debug(rgb, poster_name, index, route_y0, row_y1, stops)
+
+        return {
+            "poster": poster_name,
+            "direction": direction,
+            "path": str(path),
+            "size": [int(width), int(height)],
+            "route_blocks": [[int(a), int(b)] for a, b in blocks],
+            "entries": entries,
+        }
+
+    def _draw_debug(
+        self,
+        rgb: np.ndarray,
+        poster_name: str,
+        index: int,
+        route_y0: int,
+        row_y1: int,
+        stops: Sequence[dict[str, Any]],
+    ) -> None:
+        assert self.debug_dir is not None
+        self.debug_dir.mkdir(parents=True, exist_ok=True)
+        height = rgb.shape[0]
+        crop = Image.fromarray(rgb[max(0, route_y0 - 40):min(height, row_y1 + 60), :])
+        draw = ImageDraw.Draw(crop)
+        for stop in stops:
+            x = (stop["x0"] + stop["x1"]) // 2
+            draw.text((x - 20, stop["seq"] * 2), stop["display_name"], fill=(200, 0, 0))
+        crop.save(self.debug_dir / f"{poster_name}_b{index:02d}.jpg", quality=90)
