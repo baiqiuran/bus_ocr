@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw
 
 from buspipe.config import PipelineSettings, poster_direction, poster_station
 from buspipe.endpoints import recognize_endpoints
+from buspipe.landscape import UnsupportedLandscapeError, extract_landscape_entry, locate_landscape
 from buspipe.layout import (
     detect_route_blocks,
     locate_stop_band,
@@ -84,6 +85,13 @@ class PosterExtractor:
         current_stop = station if station is not None else settings.current_stop
         rgb = np.asarray(Image.open(path).convert("RGB"))
         height, width, _ = rgb.shape
+        if endpoints_only and width > height:
+            try:
+                return self._extract_landscape(path, rgb, current_stop, only_blocks)
+            except UnsupportedTemplateError:
+                # Cropped multi-route sheets can also be wider than tall.
+                # Only dispatch on a matching single-route template signature.
+                pass
         red = make_red_mask(rgb)
         try:
             blocks = detect_route_blocks(rgb, settings.layout)
@@ -286,6 +294,51 @@ class PosterExtractor:
             "route_blocks": [[int(a), int(b)] for a, b in blocks],
             "entries": entries,
         }
+
+    def _extract_landscape(
+        self, path: Path, rgb: np.ndarray, current_stop: str, only_blocks: set[int] | None,
+    ) -> dict[str, Any]:
+        height, width = rgb.shape[:2]
+        poster = path.stem
+        station, direction = poster_station(poster, current_stop), poster_direction(poster)
+        try:
+            layout = locate_landscape(rgb, self.settings.landscape)
+        except UnsupportedLandscapeError as exc:
+            raise UnsupportedTemplateError(f"unsupported landscape next-stop board ({width}x{height}): {exc}") from exc
+        result = {
+            "poster": poster, "path": str(path), "size": [width, height],
+            "extract_mode": "endpoints", "template": layout.template,
+            "station": station, "direction": direction, "station_key": f"{station}-{direction}",
+            "route_blocks": [[layout.route_box[1], layout.route_box[3] - 1]], "entries": [],
+        }
+        if only_blocks is not None and 0 not in only_blocks:
+            return result
+        self._emit("block_start", poster=poster, block_index=0, block_count=1,
+                   route_y0=layout.route_box[1], route_y1=layout.route_box[3] - 1)
+        cached = self.checkpoint.load(0) if self.checkpoint is not None else None
+        if cached is not None:
+            entry = copy.deepcopy(cached)
+            entry["cache_hit"] = True
+            result["entries"].append(entry)
+            self._emit("block_cached", poster=poster, block_index=0, route=entry.get("route", ""),
+                       stop_count=0, endpoint_count=2, extract_mode="endpoints")
+            return result
+        try:
+            entry = extract_landscape_entry(rgb, layout, poster, station, direction,
+                                            self.backend, self.settings, self.stats)
+        except Exception as exc:
+            self._emit("block_failed", poster=poster, block_index=0, error=str(exc))
+            result["entries"].append({"poster": poster, "direction": direction, "block_index": 0,
+                                      "route": "", "error": str(exc)})
+            return result
+        result["entries"].append(entry)
+        if self.checkpoint is not None:
+            self.checkpoint.store(0, entry)
+        self._emit("block_done", poster=poster, block_index=0, route=entry["route"], stop_count=0,
+                   endpoint_count=2, extract_mode="endpoints", column_count=len(entry["columns"]), row=entry["row"])
+        if self.debug_dir is not None:
+            self._draw_debug(rgb, poster, 0, layout.route_box[1], entry["row"][1], entry["endpoints"])
+        return result
 
     def _draw_debug(
         self,

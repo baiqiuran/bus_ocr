@@ -18,11 +18,11 @@ def _metadata(text: str) -> bool:
     return bool(re.search(r"20\d{2}[.\-/]\d{1,2}[.\-/]\d{1,2}", text) or "执行" in text)
 
 
-def _assemble(group: Sequence[dict[str, Any]], role: str) -> dict[str, Any]:
+def assemble_endpoint(group: Sequence[dict[str, Any]], role: str) -> dict[str, Any]:
     # Grouping uses the complete row's geometry. Recomputing medians from just
     # two distant endpoints can mistake a narrow terminal for a note.
     base = group[0]
-    name = normalize_stop(str(base.get("text", "")))
+    name = normalize_stop(str(base.get("text", "")), preserve_parentheses=True)
     notes = [str(c.get("text", "")).strip("()（） ，,、;；:：") for c in group[1:]]
     note = "；".join(text for text in notes if text and not _metadata(text))
     flags = sorted({flag for c in group for flag in c.get("fallback_flags", [])})
@@ -86,8 +86,8 @@ def recognize_endpoints(
             right -= 1
             continue
         endpoints = [
-            _assemble([recognized[i] for i in groups[left]], "first"),
-            _assemble([recognized[i] for i in groups[right]], "last"),
+            assemble_endpoint([recognized[i] for i in groups[left]], "first"),
+            assemble_endpoint([recognized[i] for i in groups[right]], "last"),
         ]
         return endpoints, [recognized[i] for i in sorted(recognized)]
     raise RuntimeError("cannot locate two route endpoints after excluding metadata")

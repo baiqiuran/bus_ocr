@@ -1,0 +1,198 @@
+{
+  "安里/安里-东-141-01.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "141",
+    "first_stop": "福晟钱隆樽品",
+    "last_stop": "公交大学城总站"
+  },
+  "安里/安里-东-141-02.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "141",
+    "first_stop": "福晟钱隆樽品",
+    "last_stop": "公交大学城总站"
+  },
+  "安里/安里-西-141-01.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "141",
+    "first_stop": "公交大学城总站",
+    "last_stop": "福晟钱隆樽品"
+  },
+  "安里/安里-西-141-02.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "141",
+    "first_stop": "公交大学城总站",
+    "last_stop": "福晟钱隆樽品"
+  },
+  "安里/安里-东-171-01.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "171",
+    "first_stop": "旗山万佛寺",
+    "last_stop": "公交仁德站"
+  },
+  "安里/安里-东-171-02.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "171",
+    "first_stop": "旗山万佛寺",
+    "last_stop": "公交仁德站"
+  },
+  "安里/安里-西-171-01.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "171",
+    "first_stop": "公交仁德站",
+    "last_stop": "旗山万佛寺"
+  },
+  "安里/安里-西-171-02.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "171",
+    "first_stop": "公交仁德站",
+    "last_stop": "旗山万佛寺"
+  },
+  "安里/安里-东-82-01.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "82",
+    "first_stop": "江口公交总站",
+    "last_stop": "公交苍霞站"
+  },
+  "安里/安里-东-82-02.jpg": {
+    "station": "安里",
+    "direction": "东",
+    "route": "82",
+    "first_stop": "江口公交总站",
+    "last_stop": "公交苍霞站"
+  },
+  "安里/安里-西-82-01.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "82",
+    "first_stop": "公交苍霞站",
+    "last_stop": "江口公交总站"
+  },
+  "安里/安里-西-82-02.jpg": {
+    "station": "安里",
+    "direction": "西",
+    "route": "82",
+    "first_stop": "公交苍霞站",
+    "last_stop": "江口公交总站"
+  },
+  "敖里/敖里-北-142-01.jpg": {
+    "station": "敖里",
+    "direction": "北",
+    "route": "142",
+    "first_stop": "东部办公区",
+    "last_stop": "城锦公交车场"
+  },
+  "敖里/敖里-北-142-02.jpg": {
+    "station": "敖里",
+    "direction": "北",
+    "route": "142",
+    "first_stop": "东部办公区",
+    "last_stop": "城锦公交车场"
+  },
+  "敖里/敖里-南-142-01.jpg": {
+    "station": "敖里",
+    "direction": "南",
+    "route": "142",
+    "first_stop": "城锦公交车场",
+    "last_stop": "东部办公区"
+  },
+  "敖里/敖里-南-142-02.jpg": {
+    "station": "敖里",
+    "direction": "南",
+    "route": "142",
+    "first_stop": "城锦公交车场",
+    "last_stop": "东部办公区"
+  },
+  "敖里/敖里-北-通学专线13-01.jpg": {
+    "station": "敖里",
+    "direction": "北",
+    "route": "通学专线13",
+    "first_stop": "永南中学",
+    "last_stop": "前锦新城2期"
+  },
+  "敖里/敖里-北-通学专线13-02.jpg": {
+    "station": "敖里",
+    "direction": "北",
+    "route": "通学专线13",
+    "first_stop": "永南中学",
+    "last_stop": "前锦新城2期"
+  },
+  "敖里/敖里-南-通学专线13-01.jpg": {
+    "station": "敖里",
+    "direction": "南",
+    "route": "通学专线13",
+    "first_stop": "前锦新城2期",
+    "last_stop": "永南中学"
+  },
+  "敖里/敖里-南-通学专线13-02.jpg": {
+    "station": "敖里",
+    "direction": "南",
+    "route": "通学专线13",
+    "first_stop": "前锦新城2期",
+    "last_stop": "永南中学"
+  },
+  "艾默生路/艾默生路-北-接驳6-01.jpg": {
+    "station": "艾默生路",
+    "direction": "北",
+    "route": "接驳6",
+    "first_stop": "盖山竹榄地铁站",
+    "last_stop": "建新花卉中心"
+  },
+  "艾默生路/艾默生路-北-接驳6-02.jpg": {
+    "station": "艾默生路",
+    "direction": "北",
+    "route": "接驳6",
+    "first_stop": "盖山竹榄地铁站",
+    "last_stop": "建新花卉中心"
+  },
+  "艾默生路/艾默生路-南-接驳6-01.jpg": {
+    "station": "艾默生路",
+    "direction": "南",
+    "route": "接驳6",
+    "first_stop": "建新花卉中心",
+    "last_stop": "盖山竹榄地铁站"
+  },
+  "艾默生路/艾默生路-南-接驳6-02.jpg": {
+    "station": "艾默生路",
+    "direction": "南",
+    "route": "接驳6",
+    "first_stop": "建新花卉中心",
+    "last_stop": "盖山竹榄地铁站"
+  },
+  "阿尔卡特（白湖亭）/阿尔卡特（白湖亭）-北-77-01.jpg": {
+    "station": "阿尔卡特（白湖亭）",
+    "direction": "北",
+    "route": "77",
+    "first_stop": "仓山科技园（浦下村委会）",
+    "last_stop": "淮安公交总站"
+  },
+  "阿尔卡特（白湖亭）/阿尔卡特（白湖亭）-北-77-02.jpg": {
+    "station": "阿尔卡特（白湖亭）",
+    "direction": "北",
+    "route": "77",
+    "first_stop": "仓山科技园（浦下村委会）",
+    "last_stop": "淮安公交总站"
+  },
+  "阿尔卡特（白湖亭）/阿尔卡特（白湖亭）-南-77-01.jpg": {
+    "station": "阿尔卡特（白湖亭）",
+    "direction": "南",
+    "route": "77",
+    "first_stop": "淮安公交总站",
+    "last_stop": "仓山科技园（浦下村委会）"
+  },
+  "阿尔卡特（白湖亭）/阿尔卡特（白湖亭）-南-77-02.jpg": {
+    "station": "阿尔卡特（白湖亭）",
+    "direction": "南",
+    "route": "77",
+    "first_stop": "淮安公交总站",
+    "last_stop": "仓山科技园（浦下村委会）"
+  }
+}

@@ -18,12 +18,12 @@ def normalize_for_compare(value: str) -> str:
     return re.sub(r"\s+", "", value).replace("（", "(").replace("）", ")")
 
 
-def normalize_stop(text: str) -> str:
+def normalize_stop(text: str, *, preserve_parentheses: bool = False) -> str:
     text = re.sub(r"\s+", "", text)
     text = text.replace("立占", "站")
     text = text.replace("（", "(").replace("）", ")")
     text = re.sub(r"[，,、;；:：]+$", "", text)
-    return text.strip("()")
+    return text if preserve_parentheses else text.strip("()")
 
 
 def pick_route_number(

@@ -19,6 +19,7 @@ FLAG_REASONS = {
     "wide_box": ("wide_box", "检测框明显宽于列宽"),
     "low_coverage": ("low_coverage", "识别框未覆盖整列"),
     "empty": ("empty_ocr", "该列 OCR 为空"),
+    "direction_uncertain": ("direction_uncertain", "横版箭头不明确，需核对首末站顺序"),
 }
 
 

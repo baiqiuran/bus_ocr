@@ -1,5 +1,7 @@
 # 精简 OCR 验证记录
 
+此记录对应 pipeline 2.3 的竖版精简模式；pipeline 2.4 新增的横版支持见 [横版验证记录](landscape-validation.md)。
+
 验证环境：2026-10-22，本机 i5-12600K，RapidOCR CPU，4 线程，无远程服务、无 VLM。样本来自 `E:/BaiduNetdiskDownload/底板/1-10`。
 
 ## 同机对比

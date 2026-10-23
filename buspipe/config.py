@@ -92,14 +92,31 @@ class OcrSettings:
 
 
 @dataclass(frozen=True)
+class LandscapeSettings:
+    min_aspect: float = 1.3
+    max_aspect: float = 1.9
+    route_right: float = 0.54
+    route_bottom: float = 0.47
+    caption_top: float = 0.70
+    caption_bottom: float = 0.95
+    divider_min_width: float = 0.65
+    row_top_offset: float = 0.05
+    row_bottom: float = 0.89
+    min_column_height: float = 0.18
+    foreground_delta: int = 70
+    glyph_height: int = 64
+
+
+@dataclass(frozen=True)
 class PipelineSettings:
     current_stop: str = "安淡"
     extract_mode: str = "full"  # full | endpoints
     route_hints: Mapping[str, Sequence[str]] = field(default_factory=lambda: DEFAULT_ROUTE_HINTS)
     layout: LayoutSettings = field(default_factory=LayoutSettings)
+    landscape: LandscapeSettings = field(default_factory=LandscapeSettings)
     canvas: CanvasSettings = field(default_factory=CanvasSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
-    pipeline_version: str = "2.3"
+    pipeline_version: str = "2.4"
     model_version: str = "rapidocr-default"
     review_low_score: float = 0.75
     bidirectional_min_similarity: float = 0.9
@@ -117,6 +134,7 @@ class PipelineSettings:
             "extract_mode": self.extract_mode,
             "route_hints": {k: list(v) for k, v in self.route_hints.items()},
             "layout": asdict(self.layout),
+            "landscape": asdict(self.landscape),
             "canvas": asdict(self.canvas),
             "ocr": asdict(self.ocr),
         }
