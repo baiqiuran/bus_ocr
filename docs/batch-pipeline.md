@@ -2,6 +2,8 @@
 
 这条流水线把原来逐站牌运行的脚本拆成可复用的提取核心，并增加了 manifest、断点续跑、缓存、远程 OCR、复核队列、VLM 复核和批量报告。版面理解仍在本地完成，远程服务只接收本地切好的裁片或画布。
 
+只需“站名＋文件名方位、线路号、首站→末站”时，使用 `--extract-mode endpoints`；启动方法和输出字段见 [精简模式说明](endpoints-mode.md)。
+
 ## 1. 准备
 
 依赖：Python 3.10+、numpy、Pillow、RapidOCR、pandas、openpyxl。测试用 pytest。

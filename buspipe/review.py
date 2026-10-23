@@ -11,7 +11,7 @@ from typing import Any, Sequence
 from PIL import Image
 
 from buspipe.config import PipelineSettings
-from buspipe.parsing import refresh_entry_validation
+from buspipe.parsing import entry_targets, refresh_entry_validation
 from buspipe.store import REASON_PRIORITY, review_sort_key
 
 FLAG_REASONS = {
@@ -42,7 +42,7 @@ def apply_overrides(result: dict[str, Any], overrides: Sequence[dict[str, Any]])
                 continue
             if str(entry.get("route", "")) != str(override.get("route", "")):
                 continue
-            stops = entry.get("stops", [])
+            stops = entry_targets(entry)
             seq = int(override.get("seq", 0))
             if not 1 <= seq <= len(stops):
                 continue
@@ -69,7 +69,7 @@ def summaries_from_result(
 ) -> list[PosterSummary]:
     summaries = []
     for entry in result.get("entries", []):
-        if entry.get("error"):
+        if entry.get("error") or entry.get("extract_mode") == "endpoints":
             continue
         summaries.append(
             PosterSummary(
@@ -97,7 +97,7 @@ class ReviewEngine:
         image_path: Path | str | None = None,
         crop_dir: Path | str | None = None,
     ) -> list[dict[str, Any]]:
-        items: dict[tuple[str, int], dict[str, Any]] = {}
+        items: dict[tuple[str, str, str, int], dict[str, Any]] = {}
         image: Image.Image | None = None
         crop_root = Path(crop_dir) if crop_dir else None
         if crop_root is not None:
@@ -135,7 +135,7 @@ class ReviewEngine:
             source: str = "ocr",
             crop: str = "",
         ) -> None:
-            key = (reason, int(seq))
+            key = (str(entry.get("route", "")), str(entry.get("direction", "")), reason, int(seq))
             if key in items:
                 return
             items[key] = {
@@ -158,14 +158,23 @@ class ReviewEngine:
             if entry.get("error"):
                 add(entry, "layout_error", 0, f"版面/OCR 失败：{entry['error']}")
                 continue
-            stops = entry.get("stops", [])
+            endpoints_only = entry.get("extract_mode") == "endpoints"
+            if endpoints_only:
+                number_items = entry.get("number_items", [])
+                if not route:
+                    add(entry, "route_number_unknown", 0, "未识别出线路号")
+                elif not entry.get("route_ocr") or entry.get("route_ocr") != route or (
+                    number_items and min(float(item.get("score", 0.0)) for item in number_items) < self.settings.review_low_score
+                ):
+                    add(entry, "route_number_uncertain", 0, "线路号 OCR 置信度不足或与已知线路提示不一致", ocr_text=route)
+            stops = entry_targets(entry)
             if not stops:
                 add(entry, "unknown_template", 0, "未识别出任何站名列，可能是新模板")
                 continue
             current_index = entry.get("current_index")
             next_stop = str(entry.get("next_stop", ""))
             expected_next = str(entry.get("expected_next", ""))
-            if current_index is None and next_stop:
+            if not endpoints_only and current_index is None and next_stop:
                 add(
                     entry,
                     "current_stop_unknown",
@@ -173,7 +182,7 @@ class ReviewEngine:
                     f"未能定位当前站；表头下站={next_stop}",
                     ocr_text=next_stop,
                 )
-            if next_stop and not entry.get("next_stop_matches"):
+            if not endpoints_only and next_stop and not entry.get("next_stop_matches"):
                 # seq is 1-based; the expected next stop is current_index + 2.
                 seq = int(current_index) + 2 if isinstance(current_index, int) else 0
                 target_stop = stops[seq - 1] if 1 <= seq <= len(stops) else None
@@ -235,6 +244,11 @@ class ReviewEngine:
                     )
             for column_index, column in enumerate(entry.get("columns", [])):
                 if column.get("text"):
+                    continue
+                if endpoints_only and any(
+                    stop.get("manual") and stop["x0"] <= column.get("x0", 0)
+                    and stop["x1"] >= column.get("x1", 0) for stop in stops
+                ):
                     continue
                 # Negative seq means "column position", not a stop sequence.
                 seq = -1 - column_index

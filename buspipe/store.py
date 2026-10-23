@@ -34,6 +34,8 @@ PIPELINE_STATUSES = (
 REASON_PRIORITY = {
     "layout_error": 0,
     "unknown_template": 5,
+    "route_number_unknown": 6,
+    "route_number_uncertain": 7,
     "cross_column": 10,
     "wide_box": 12,
     "low_coverage": 14,

@@ -29,10 +29,11 @@ def test_cli_dry_run_does_not_call_ocr(tmp_path):
     source.mkdir()
     make_poster(source / "测试小区-北-001.jpg", stops=6)
     out = tmp_path / "out"
-    completed = _run_cli("run", str(source), "--out", str(out), "--dry-run", "--station", "测试小区")
+    completed = _run_cli("run", str(source), "--out", str(out), "--dry-run", "--station", "测试小区", "--extract-mode", "endpoints")
     assert completed.returncode == 0, completed.stdout + completed.stderr
     summary = json.loads(completed.stdout)
     assert summary["dry_run"] is True
+    assert summary["extract_mode"] == "endpoints"
     assert summary["counts"]["pending"] == 1
     assert not (out / "posters").exists()
     assert (out / ".batch" / "manifest.sqlite").exists()

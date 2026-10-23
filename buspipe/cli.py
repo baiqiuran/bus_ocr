@@ -27,7 +27,7 @@ def _run(args: argparse.Namespace) -> int:
     out_dir = Path(args.out)
     manifest = Path(args.manifest) if args.manifest else None
     stats = OcrStats()
-    settings = PipelineSettings(current_stop=args.station, route_hints=DEFAULT_ROUTE_HINTS)
+    settings = PipelineSettings(current_stop=args.station, route_hints=DEFAULT_ROUTE_HINTS, extract_mode=args.extract_mode)
     backend = None
     reviewer = None
     if not args.dry_run:
@@ -101,6 +101,7 @@ def _run(args: argparse.Namespace) -> int:
     result = run_batch(args.source, config, ocr_backend=backend, vlm_reviewer=reviewer)
     summary = {
         "dry_run": result.dry_run,
+        "extract_mode": settings.extract_mode,
         "manifest": str(result.manifest_path),
         "counts": result.counts,
         "review": result.review_counts,
@@ -162,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--workers", type=int, default=1, help="海报级并发，本地 OCR 建议 1")
     run.add_argument("--threads", type=int, default=4, help="RapidOCR 线程数")
     run.add_argument("--ocr-mode", choices=["batch", "columns"], default="batch")
+    run.add_argument("--extract-mode", choices=["full", "endpoints"], default="full",
+                     help="endpoints 只提取文件名站点/方位、线路号、首末站；full 提取完整站序")
     run.add_argument("--max-columns", type=int, default=None)
     run.add_argument("--max-width", type=int, default=None)
     run.add_argument("--limit", type=int, default=None, help="本次最多处理多少张")

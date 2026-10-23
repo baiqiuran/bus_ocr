@@ -275,8 +275,22 @@ def assemble_stops(
     return stops, current_index
 
 
+def entry_targets(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Review/override targets; endpoint slots are separate from full stops."""
+    return entry.get("endpoints", []) if entry.get("extract_mode") == "endpoints" else entry.get("stops", [])
+
+
 def refresh_entry_validation(entry: dict[str, Any]) -> None:
     """Recompute next-stop agreement after an override changed stop names."""
+    if entry.get("extract_mode") == "endpoints":
+        terminals = {stop["role"]: stop.get("display_name", "") for stop in entry.get("endpoints", [])}
+        entry["first_stop"] = terminals.get("first", "")
+        entry["last_stop"] = terminals.get("last", "")
+        entry["route_direction"] = (
+            f"{entry['first_stop']}→{entry['last_stop']}"
+            if entry["first_stop"] and entry["last_stop"] else ""
+        )
+        return
     stops = entry.get("stops", [])
     current_index = entry.get("current_index")
     expected_next = ""

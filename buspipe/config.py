@@ -94,14 +94,19 @@ class OcrSettings:
 @dataclass(frozen=True)
 class PipelineSettings:
     current_stop: str = "安淡"
+    extract_mode: str = "full"  # full | endpoints
     route_hints: Mapping[str, Sequence[str]] = field(default_factory=lambda: DEFAULT_ROUTE_HINTS)
     layout: LayoutSettings = field(default_factory=LayoutSettings)
     canvas: CanvasSettings = field(default_factory=CanvasSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
-    pipeline_version: str = "2.2"
+    pipeline_version: str = "2.3"
     model_version: str = "rapidocr-default"
     review_low_score: float = 0.75
     bidirectional_min_similarity: float = 0.9
+
+    def __post_init__(self) -> None:
+        if self.extract_mode not in {"full", "endpoints"}:
+            raise ValueError(f"unknown extraction mode: {self.extract_mode}")
 
     def fingerprint(self, extra: Mapping[str, Any] | None = None) -> str:
         """Stable hash of every setting that can change extracted data."""
@@ -109,6 +114,7 @@ class PipelineSettings:
             "pipeline_version": self.pipeline_version,
             "model_version": self.model_version,
             "current_stop": self.current_stop,
+            "extract_mode": self.extract_mode,
             "route_hints": {k: list(v) for k, v in self.route_hints.items()},
             "layout": asdict(self.layout),
             "canvas": asdict(self.canvas),

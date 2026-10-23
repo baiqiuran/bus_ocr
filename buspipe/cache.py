@@ -150,7 +150,7 @@ def _valid_block(block_index: int) -> Callable[[Any], bool]:
         return (
             isinstance(data, dict)
             and data.get("block_index") == block_index
-            and isinstance(data.get("stops"), list)
+            and isinstance(data.get("endpoints") if data.get("extract_mode") == "endpoints" else data.get("stops"), list)
             and isinstance(data.get("route"), str)
         )
 

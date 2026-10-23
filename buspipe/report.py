@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import tempfile
@@ -9,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from buspipe.cache import _replace_with_retry, atomic_write_text
+from buspipe.config import poster_direction, poster_station
 from buspipe.store import (
     STATUS_DONE,
     STATUS_VALIDATED,
@@ -53,6 +56,7 @@ def build_report(store: ManifestStore, result: Any) -> dict[str, Any]:
         "source_dir": store.get_meta("source_dir", ""),
         "manifest_path": str(result.manifest_path),
         "out_dir": str(result.out_dir),
+        "extract_mode": store.get_meta("extract_mode", "full"),
         "elapsed_seconds": result.elapsed,
         "stage_seconds": result.stage_seconds,
         "scan": result.scan,
@@ -91,6 +95,7 @@ def _markdown(report: dict[str, Any]) -> str:
         f"- 数据源：`{report['source_dir']}`",
         f"- manifest：`{report['manifest_path']}`",
         f"- 总耗时：{report['elapsed_seconds']:.1f} 秒",
+        f"- 识别模式：{report['extract_mode']}",
         "",
         "## 总览",
         "",
@@ -141,6 +146,60 @@ def _markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _result_path(store: ManifestStore, out_dir: Path, poster: dict[str, Any]) -> Path:
+    path = poster_json_path(out_dir, poster)
+    if not path.exists() and store.get_meta("results_dir"):
+        path = poster_json_path(store.get_meta("results_dir"), poster)
+    return path
+
+
+def write_station_routes(store: ManifestStore, out_dir: Path) -> dict[str, str]:
+    """Flat station/direction -> ordered route-terminal mappings for either mode."""
+    rows = []
+    for poster in store.posters():
+        if poster["status"] not in {STATUS_VALIDATED, STATUS_VLM_REVIEW, STATUS_DONE}:
+            continue
+        path = _result_path(store, out_dir, poster)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        unresolved = {
+            (str(item["route"]), str(item["direction"]))
+            for item in store.review_items(image_hash=poster["image_hash"])
+            if item["status"] in {"open", "needs_human", "vlm_only"}
+        }
+        for entry in payload.get("entries", []):
+            if entry.get("error"):
+                continue
+            stem = payload.get("poster", Path(poster["path"]).stem)
+            station = poster_station(stem, poster["station"])
+            direction = poster_direction(stem)
+            route = str(entry.get("route", ""))
+            if entry.get("extract_mode") == "endpoints":
+                first, last = entry.get("first_stop", ""), entry.get("last_stop", "")
+            else:
+                stops = entry.get("stops", [])
+                first = stops[0].get("display_name", "") if stops else ""
+                last = stops[-1].get("display_name", "") if stops else ""
+            rows.append({
+                "station": station, "direction": direction, "station_key": f"{station}-{direction}",
+                "route": route, "first_stop": first, "last_stop": last,
+                "route_direction": f"{first}→{last}" if first and last else "",
+                "needs_review": (route, direction) in unresolved or not all((route, first, last)) or direction == "未知",
+                "poster": stem, "block_index": entry.get("block_index", 0),
+            })
+    fields = ["station", "direction", "station_key", "route", "first_stop", "last_stop", "route_direction", "needs_review", "poster", "block_index"]
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fields)
+    writer.writeheader()
+    writer.writerows(rows)
+    csv_path, json_path = out_dir / "station_routes.csv", out_dir / "station_routes.json"
+    atomic_write_text(csv_path, "\ufeff" + buffer.getvalue())
+    atomic_write_text(json_path, json.dumps(rows, ensure_ascii=False, indent=2))
+    return {"station_routes_csv": str(csv_path), "station_routes_json": str(json_path)}
+
+
 def write_merged_raw(store: ManifestStore, result: Any, out_dir: Path) -> Path:
     """Stream all finished poster JSONs into the analyzer's all_raw.json shape."""
     path = out_dir / "all_raw.json"
@@ -155,7 +214,7 @@ def write_merged_raw(store: ManifestStore, result: Any, out_dir: Path) -> Path:
             for poster in store.posters():
                 if poster["status"] not in {STATUS_VALIDATED, STATUS_VLM_REVIEW, STATUS_DONE}:
                     continue
-                file_path = poster_json_path(out_dir, poster)
+                file_path = _result_path(store, out_dir, poster)
                 if not file_path.exists():
                     continue
                 try:
@@ -185,6 +244,7 @@ def write_outputs(store: ManifestStore, result: Any, out_dir: Path) -> dict[str,
     atomic_write_text(json_path, json.dumps(report, ensure_ascii=False, indent=2, default=str))
     atomic_write_text(md_path, _markdown(report))
     files = {"all_raw": str(merged), "report_json": str(json_path), "report_md": str(md_path)}
+    files.update(write_station_routes(store, out_dir))
     if result.review_csv:
         files["review_csv"] = str(result.review_csv)
     return files

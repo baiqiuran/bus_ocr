@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +39,11 @@ def _event_printer(event: str, payload: dict[str, Any]) -> None:
     elif event == "block_cached":
         print(f"    route {payload.get('route', '')}: cached", flush=True)
     elif event == "block_done":
+        count = (f"endpoints={payload.get('endpoint_count', 0)}"
+                 if payload.get("extract_mode") == "endpoints"
+                 else f"stops={payload.get('stop_count', 0)}")
         print(
-            f"    route {payload.get('route', '')}: stops={payload.get('stop_count', 0)} "
+            f"    route {payload.get('route', '')}: {count} "
             f"cols={payload.get('column_count', 0)} row={payload.get('row', ['?', '?'])[0]}-"
             f"{payload.get('row', ['?', '?'])[1]}",
             flush=True,
@@ -52,6 +56,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--poster", help="poster stem, e.g. 安淡-北-01")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--extract-mode", choices=["full", "endpoints"], default="full")
     parser.add_argument("--block", type=int, action="append", help="block index to process (repeatable)")
     parser.add_argument("--out", default=str(OUT_DIR / "raw_extract.json"))
     args = parser.parse_args()
@@ -65,7 +70,7 @@ def main() -> None:
     if not paths:
         raise SystemExit("no matching posters")
 
-    settings = settings_from_env()
+    settings = replace(settings_from_env(), extract_mode=args.extract_mode)
     threads = max(1, int(os.environ.get("OCR_THREADS", "4")))
     backend = LocalRapidOcrBackend(threads=threads)
     extractor = PosterExtractor(

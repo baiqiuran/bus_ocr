@@ -91,7 +91,8 @@ def test_landscape_next_stop_board_is_rejected(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("style", ["wide_vertical", "horizontal_name", "empty_band"])
-def test_landscape_next_stop_column_is_not_exported(tmp_path, style) -> None:
+@pytest.mark.parametrize("extract_mode", ["full", "endpoints"])
+def test_landscape_next_stop_column_is_not_exported(tmp_path, style, extract_mode) -> None:
     source = tmp_path / "source"
     source.mkdir()
     rgb = _canvas(width=1600, height=1000)
@@ -109,7 +110,7 @@ def test_landscape_next_stop_column_is_not_exported(tmp_path, style) -> None:
         def recognize(self, images, params):
             raise AssertionError("unsupported templates must be rejected before OCR")
 
-    result = run_batch(source, BatchConfig(out_dir=tmp_path / "out"), ocr_backend=NoOcr())
+    result = run_batch(source, BatchConfig(out_dir=tmp_path / "out", pipeline=PipelineSettings(extract_mode=extract_mode)), ocr_backend=NoOcr())
 
     assert result.counts["failed"] == 1
     poster = ManifestStore(result.manifest_path).posters()[0]

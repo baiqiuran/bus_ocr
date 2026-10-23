@@ -26,7 +26,7 @@ from buspipe.ocr import LocalRapidOcrBackend, OcrBackend, OcrStats
 from PIL import Image
 
 from buspipe.report import write_outputs
-from buspipe.parsing import normalize_for_compare
+from buspipe.parsing import entry_targets, normalize_for_compare
 from buspipe.review import PosterSummary, ReviewEngine, apply_overrides, summaries_from_result
 from buspipe.store import (
     STATUS_DONE,
@@ -184,7 +184,7 @@ def _find_entry(result: dict[str, Any], item: Mapping[str, Any]) -> dict[str, An
 def _item_geometry(entry: dict[str, Any], item: Mapping[str, Any]) -> dict[str, Any] | None:
     seq = int(item.get("seq", 0))
     if seq > 0:
-        stops = entry.get("stops", [])
+        stops = entry_targets(entry)
         if seq <= len(stops):
             return stops[seq - 1]
         return None
@@ -214,6 +214,9 @@ def _context_pngs(
 ) -> list[bytes]:
     if image is None:
         return []
+    if entry.get("extract_mode") == "endpoints":
+        # The other terminal is not a neighbouring stop.
+        return []
     seq = int(item.get("seq", 0))
     contexts: list[bytes] = []
     if seq > 0:
@@ -237,7 +240,7 @@ def _update_stop_source(result: dict[str, Any], item: Mapping[str, Any], source:
     if entry is None:
         return
     seq = int(item.get("seq", 0))
-    stops = entry.get("stops", [])
+    stops = entry_targets(entry)
     if 1 <= seq <= len(stops) and stops[seq - 1].get("source") != "manual":
         stops[seq - 1]["source"] = source
 
@@ -436,6 +439,19 @@ def run_batch(
         raise FileNotFoundError(f"batch source not found: {source}")
 
     store = ManifestStore(manifest_path)
+    base_settings = config.resolved_pipeline()
+    if not config.dry_run:
+        previous_mode = store.get_meta("extract_mode")
+        if not previous_mode and any(row["attempts"] for row in store.posters()):
+            previous_mode = "full"  # manifests created before mode support
+        if previous_mode and previous_mode != base_settings.extract_mode:
+            raise BatchError(
+                f"manifest extraction mode is {previous_mode}; requested {base_settings.extract_mode}. "
+                "Use a separate --out/--work-dir/--manifest for a different extraction mode."
+            )
+        store.set_meta("extract_mode", base_settings.extract_mode)
+        if not store.get_meta("results_dir"):
+            store.set_meta("results_dir", str(out_dir.resolve()))
     scan: dict[str, Any] = {"discovered": 0, "new": 0, "duplicates": 0, "unchanged": 0, "failed": 0}
     if source.is_dir():
         scan = scan_directory(store, source, station_fallback=config.current_stop)
@@ -477,7 +493,6 @@ def run_batch(
         rows = [row for row in rows if row["station"] in wanted_stations]
     if config.limit is not None:
         rows = rows[: max(0, config.limit)]
-    base_settings = config.resolved_pipeline()
     backend = ocr_backend
     if backend is None and extractor is None:
         backend = LocalRapidOcrBackend(
