@@ -2,6 +2,8 @@
 
 这条流水线把原来逐站牌运行的脚本拆成可复用的提取核心，并增加了 manifest、断点续跑、缓存、远程 OCR、复核队列、VLM 复核和批量报告。版面理解仍在本地完成，远程服务只接收本地切好的裁片或画布。
 
+其他 Agent 执行、迁移或接入 AI 时，从 [Agent 调用约定](agent-guide.md) 开始；字段口径与当前缺陷见 [精简模式规则](endpoints-mode.md)。
+
 只需“站名＋文件名方位、线路号、首站→末站”时，使用 `--extract-mode endpoints`，自动匹配竖版多线路站牌和已适配的横版正反面；启动方法和输出字段见 [精简模式说明](endpoints-mode.md)。
 
 ## 1. 准备
@@ -203,6 +205,6 @@ python -m pytest -m "not soak"   # 日常快速回归
 
 真实样本不在默认底板根目录时，可用 `BUS_OCR_SAMPLE_ROOT` 指定包含“安平小区”子目录的样本目录，例如 `E:/BaiduNetdiskDownload/底板/1-10`。
 
-设置 `RUN_SAMPLE_LAYOUT=1` 后运行 `tests/test_route_geometry.py`，可逐张检查样本目录：竖版牌的全部线路必须能定位站名列，横版下一站牌必须在 OCR 前拒绝。
+设置 `RUN_SAMPLE_LAYOUT=1` 后运行 `tests/test_route_geometry.py`，可逐张检查样本目录。此检查针对 `full` 模式：竖版牌的全部线路必须能定位站名列，横版下一站牌必须在 OCR 前拒绝；`endpoints` 模式已支持的横版正反面由 `tests/test_landscape.py` 验证。
 
 上述版面检查验证 `full` 的隔离行为；横版精简模式的真实 OCR 回归可用 `RUN_REAL_LANDSCAPE_OCR=1` 单独运行 `tests/test_landscape.py::test_real_landscape_endpoints`，与人工核对的首末站基准比较。
