@@ -145,7 +145,7 @@ class PosterExtractor:
             try:
                 try:
                     row_y0, row_y1, columns, row_debug = locate_stop_band(
-                        rgb, route_y1, next_start, settings.layout
+                        rgb, route_y1, next_start, settings.layout, adaptive=endpoints_only,
                     )
                 except RuntimeError:
                     if width > height:

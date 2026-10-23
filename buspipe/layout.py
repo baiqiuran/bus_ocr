@@ -128,21 +128,33 @@ def route_number_bounds(
     return int(columns.min()) + settings.route_x0, int(columns.max()) + settings.route_x0
 
 
+def _stop_row_counts(
+    rgb: np.ndarray, y0: int, y1: int, settings: LayoutSettings, *, remove_red_rules: bool = False,
+) -> np.ndarray:
+    band = rgb[y0:y1, settings.row_project_x0:settings.row_project_x1]
+    mask = make_mask(band)
+    if remove_red_rules and mask.size:
+        # Page-wide red rules/backgrounds carry more ink than station glyphs.
+        mask[make_red_mask(band).mean(axis=1) >= 0.98] = False
+    return mask.sum(axis=1)
+
+
 def detect_stop_row(
     rgb: np.ndarray,
     route_end: int,
     next_route_start: int | None,
     settings: LayoutSettings,
+    *,
+    adaptive: bool = False,
 ) -> tuple[int, int, dict[str, Any]]:
     """Locate the dense vertical-text row below the header."""
     height = rgb.shape[0]
     y0 = route_end + 15
-    y1 = min(height, route_end + 500)
+    limit = height
     if next_route_start is not None:
-        y1 = min(y1, next_route_start - 60)
-    band = rgb[y0:y1, settings.row_project_x0:settings.row_project_x1]
-    mask = make_mask(band)
-    row_count = mask.sum(axis=1)
+        limit = min(limit, next_route_start - 60)
+    y1 = min(limit, route_end + 500)
+    row_count = _stop_row_counts(rgb, y0, y1, settings, remove_red_rules=adaptive)
     if row_count.size == 0 or row_count.max() < 10:
         raise RuntimeError(f"empty stop band at y={y0}:{y1}")
     threshold = max(20, int(row_count.max() * 0.15))
@@ -151,12 +163,32 @@ def detect_stop_row(
     if not runs:
         raise RuntimeError(f"no text row at y={y0}:{y1}")
     start, end = max(runs, key=lambda se: int(row_count[se[0]:se[1] + 1].sum()))
+    # Follow only the row crossing the limit. Keeping its threshold and run
+    # avoids switching to a denser advertisement below the station text.
+    while adaptive and end == len(row_count) - 1 and y0 < y1 < limit:
+        edge = rgb[y1 - 1:y1 + 1, settings.row_project_x0:settings.row_project_x1]
+        if not edge.size or not ((edge < 120).all(axis=2).sum(axis=1) > 10).all():
+            break
+        extra = _stop_row_counts(rgb, y1, min(limit, y1 + 500), settings, remove_red_rules=True)
+        continuations = group_indices(np.where(extra > threshold)[0], max_gap=20)
+        if not continuations or continuations[0][0] > 20:
+            break
+        length = continuations[0][1] + 1
+        row_count = np.concatenate((row_count, extra[:length]))
+        y1 += length
+        end = len(row_count) - 1
+    runs = group_indices(np.where(row_count > threshold)[0], max_gap=20)
     # Include immediately adjacent fragments (e.g. a detached bottom stroke).
     merged_start, merged_end = start, end
     for s, e in runs:
         if s >= start and e <= end:
             continue
-        if s - merged_end <= 25 or merged_start - e <= 25:
+        if adaptive:
+            adjacent = 0 <= s - merged_end <= 25 or 0 <= merged_start - e <= 25
+        else:
+            # Preserve historical full-mode geometry and its fixture snapshots.
+            adjacent = s - merged_end <= 25 or merged_start - e <= 25
+        if adjacent:
             merged_start = min(merged_start, s)
             merged_end = max(merged_end, e)
     row_y0, row_y1 = y0 + merged_start, y0 + merged_end
@@ -191,7 +223,19 @@ def detect_stop_columns(
     split_wide: bool = True,
 ) -> list[dict[str, Any]]:
     strip = rgb[row_y0:row_y1 + 1, settings.stop_x0:settings.stop_x1]
+    if not strip.size:
+        return []
     mask = make_mask(strip)
+    # A page frame is nearly solid red and continues above/below the text row.
+    # Inspect that context so red terminal glyphs (even dense ones) are kept.
+    # This follows the pixels rather than assuming a fixed page-edge position.
+    padding = max(10, strip.shape[0] // 10)
+    context = rgb[
+        max(0, row_y0 - padding):min(rgb.shape[0], row_y1 + padding + 1),
+        settings.stop_x0:settings.stop_x1,
+    ]
+    frame_columns = make_red_mask(context).mean(axis=0) >= 0.98
+    mask[:, frame_columns] = False
     col_count = mask.sum(axis=0)
     xs = np.where(col_count > 2)[0]
     if len(xs) == 0:
@@ -268,9 +312,13 @@ def locate_stop_band(
     route_end: int,
     next_route_start: int | None,
     settings: LayoutSettings,
+    *,
+    adaptive: bool = False,
 ) -> tuple[int, int, list[dict[str, Any]], dict[str, Any]]:
-    """Detect the stop row and trim it, matching the historical behaviour."""
-    row_y0, row_y1, row_debug = detect_stop_row(rgb, route_end, next_route_start, settings)
+    """Locate/trim the row; adaptive mode follows clipped endpoint text."""
+    row_y0, row_y1, row_debug = detect_stop_row(
+        rgb, route_end, next_route_start, settings, adaptive=adaptive,
+    )
     columns = detect_stop_columns(rgb, row_y0, row_y1, settings)
     # The row-projection top often includes the route line/diamonds above the
     # text.  Trim to where most stop columns actually start.

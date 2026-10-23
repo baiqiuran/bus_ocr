@@ -116,7 +116,7 @@ class PipelineSettings:
     landscape: LandscapeSettings = field(default_factory=LandscapeSettings)
     canvas: CanvasSettings = field(default_factory=CanvasSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
-    pipeline_version: str = "2.4"
+    pipeline_version: str = "2.4.1"
     model_version: str = "rapidocr-default"
     review_low_score: float = 0.75
     bidirectional_min_similarity: float = 0.9
