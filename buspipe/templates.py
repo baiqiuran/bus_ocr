@@ -102,10 +102,58 @@ class TemplateProfile:
         return replace(settings, layout=layout, landscape=landscape)
 
 
-# Add a TemplateProfile here only after a new family has a fixed baseline and a
-# regression fixture.  Keeping this tuple empty preserves every existing
-# template branch exactly.
-PROFILES: tuple[TemplateProfile, ...] = ()
+def _vertical_8505_layout(layout: LayoutSettings, width: int, height: int) -> LayoutSettings:
+    """Ratio profile for the 8504/8505 x 19489 tall vertical family.
+
+    This family has no successful baseline.  The ratios are derived from the
+    successful 4253/4726 vertical families and must be validated against the
+    remaining failed posters before being treated as a permanent default.
+    """
+    return replace(
+        layout,
+        route_x0=round(0.07 * width),
+        route_x1=round(0.22 * width),
+        route_scan_x1=round(0.28 * width),
+        stop_x0=round(0.08 * width),
+        stop_x1=round(0.95 * width),
+        row_project_x0=round(0.08 * width),
+        row_project_x1=round(0.94 * width),
+        route_min_height=round(0.03 * width),
+        route_max_height=round(0.08 * width),
+    )
+
+
+def _vertical_4726_layout(layout: LayoutSettings, width: int, height: int) -> LayoutSettings:
+    """Extend only the 4726 row projection.
+
+    Baseline success data has right endpoints at p95=4078 px, inside the
+    existing stop_x1=4080.  The limiting boundary is row_project_x1=4000, so
+    keep stop_x1 unchanged and widen only the row projection.  This avoids
+    pulling right-edge ad/QR columns into the endpoint columns.
+    """
+    return replace(
+        layout,
+        row_project_x1=round(0.90 * width),
+    )
+
+
+# New families are opt-in by exact template key.  V_4253x9745 and the other
+# legacy families are deliberately absent so their settings and cache keys
+# remain byte-for-byte compatible with the previous pipeline.
+PROFILES: tuple[TemplateProfile, ...] = (
+    TemplateProfile(
+        name="vertical_8505_ratio",
+        version="1",
+        template_keys=("V_8505x19489", "V_8504x19489"),
+        layout_transform=_vertical_8505_layout,
+    ),
+    TemplateProfile(
+        name="vertical_4726_right",
+        version="1",
+        template_keys=("V_4726x7678",),
+        layout_transform=_vertical_4726_layout,
+    ),
+)
 
 
 def resolve_template_profile(

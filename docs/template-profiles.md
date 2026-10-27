@@ -58,7 +58,30 @@ new_family = TemplateProfile(
 )
 ```
 
-`PROFILES` 当前保持为空。只有完成基准、回归样本和测试后才注册。
+`PROFILES` 目前注册了两个新版模板族：
+
+| profile | version | 精确 key | 修改 |
+| --- | --- | --- | --- |
+| `vertical_8505_ratio` | 1 | `V_8505x19489`、`V_8504x19489` | route/stop/row 全部按宽度比例 |
+| `vertical_4726_right` | 1 | `V_4726x7678` | 只把 `row_project_x1` 调到 `0.90W`；`stop_x1` 保持 4080 |
+
+`V_4253x9745`、`V_2836x6497`、`V_2042x4678` 没有注册 profile，继续走 legacy 分支。
+
+8505/8504 的当前比例：
+
+```text
+route_x0=0.07W   route_x1=0.22W   route_scan_x1=0.28W
+stop_x0=0.08W    stop_x1=0.95W
+row_x0=0.08W     row_x1=0.94W
+route_min=0.03W  route_max=0.08W
+```
+
+4726 的当前比例：
+
+```text
+row_project_x1=0.90W
+stop_x1 保持原 4080
+```
 
 `TemplateProfile` 的匹配字段：
 
@@ -113,6 +136,9 @@ python -m pytest -q
 ## 当前状态
 
 - `buspipe/templates.py` 已提供 profile 匹配和缓存隔离接口。
-- `PROFILES` 为空，默认行为仍是旧模板分支。
-- 尚未修改任何 px 阈值。
-- 下一步必须先确定目标模板族和具体阈值，再注册 profile 并跑上述基准。
+- 已注册 `vertical_8505_ratio:1` 和 `vertical_4726_right:1`。
+- `V_4253x9745`、`V_2836x6497`、`V_2042x4678` 保持 legacy。
+- 8505/8504 本轮探测 19 张剩余失败，18 张能完成 OCR 并至少得到一对合理首末站；1 张仍无线路号板块。少数图片存在部分板块端点无效，但已不再整张失败。
+- 4726 成功率样本的右端 `p95` 约 4078 px，仍在原 `stop_x1=4080` 内；原限制主要是 `row_project_x1=4000`，因此 profile 只扩 row，不扩 stop，避免把右侧广告/二维码列并入。
+- 4726 抽样 10 张旧结果与新 profile 比较，新结果多次把截断的末站恢复为完整终点；73 张成功率模板的几何回归中 35 张 row 区间变化，仍需继续做全量 OCR A/B 后才能提升 version 或作为最终默认。
+- 全量测试已通过；回归探测明细见 `output/full-20261023-endpoints/template_profile_regression_8505.csv`。
