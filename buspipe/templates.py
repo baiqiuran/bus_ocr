@@ -191,3 +191,66 @@ def template_profile_key(
     """Cache-key component for a profile; empty means the legacy cache key."""
     profile = resolve_template_profile(width, height, stem, profiles=profiles)
     return profile.cache_key if profile is not None else ""
+
+
+def _recovery_layout(layout: LayoutSettings, width: int, height: int, *, kind: str) -> LayoutSettings:
+    # These settings are used only AFTER legacy localization raised.  Never
+    # substitute them for a successful legacy/profile localization.
+    low, high = {"small": (0.018, 0.075), "large": (0.10, 0.25), "framed": (0.025, 0.16)}[kind]
+    return replace(
+        layout, route_x0=round(width * .04), route_x1=round(width * .26),
+        route_scan_x1=round(width * .45), route_min_height=max(30, round(width * low)),
+        route_max_height=round(width * high), route_merge_gap=max(12, round(width * .012)),
+        route_top_margin=-1, route_bottom_margin=0,
+        stop_x0=round(width*.03), stop_x1=round(width*.98),
+        row_project_x0=round(width*.10), row_project_x1=round(width*.95),
+    )
+
+
+# A separate registry keeps the original PROFILES, settings, and dispatch
+# unchanged.  Exact dimensions restrict recovery to the validated families.
+RECOVERY_PROFILES: tuple[TemplateProfile, ...] = (
+    TemplateProfile(
+        name="route_recovery_small", version="2",
+        template_keys=("V_2042x4678", "V_2042x5509", "V_2994x4962", "V_4252x9744",
+                       "V_2954x10119", "V_2127x7286", "V_2915x4962"),
+        layout_transform=lambda layout,w,h: _recovery_layout(layout,w,h,kind="small"),
+    ),
+    TemplateProfile(
+        name="route_recovery_large", version="3",
+        template_keys=("V_2954x7796", "V_2954x7855", "V_2953x7796"),
+        layout_transform=lambda layout,w,h: _recovery_layout(layout,w,h,kind="large"),
+    ),
+    TemplateProfile(
+        name="route_recovery_stacked", version="1", template_keys=("V_2961x3912",),
+    ),
+    TemplateProfile(
+        name="route_recovery_4726", version="2", template_keys=("V_4726x7678",),
+        layout_transform=lambda layout,w,h: replace(
+            _recovery_layout(layout,w,h,kind="framed"),
+            route_min_height=max(30,round(w*.018)),
+        ),
+    ),
+    TemplateProfile(
+        name="route_recovery_framed", version="2",
+        template_keys=("V_4253x9745", "V_4253x9568", "V_4165x6881",
+                       "V_4726x8859", "V_5080x9450", "V_5316x8446", "V_5072x10777",
+                       "V_8860x9745", "V_8860x9746", "V_8741x16064", "V_8505x15591",
+                       "V_8505x19489", "V_8504x19489"),
+        layout_transform=lambda layout,w,h: _recovery_layout(layout,w,h,kind="framed"),
+    ),
+    TemplateProfile(
+        name="non_route_classification", version="1",
+        template_keys=("V_2836x6497", "V_2835x6497", "V_3780x7796", "V_5906x11812",
+                       "V_5907x12402", "V_6497x12402"),
+    ),
+)
+
+
+def recovery_profile(width: int, height: int, stem: str) -> TemplateProfile | None:
+    return resolve_template_profile(width, height, stem, profiles=RECOVERY_PROFILES)
+
+
+def recovery_profile_key(width: int | None, height: int | None, stem: str) -> str:
+    profile = resolve_template_profile(width, height, stem, profiles=RECOVERY_PROFILES)
+    return f"{profile.cache_key}:classification2" if profile else ""

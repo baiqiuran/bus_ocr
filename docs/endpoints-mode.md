@@ -103,6 +103,8 @@ python extract.py --poster 安平小区-东-01 --extract-mode endpoints --out ou
 
 ## 当前已知问题
 
+后续新增了受模板族限制的线路号定位失败回退，以及未启用、空白、通知和车道指示图片的 `skipped` 分类。原定位成功时仍走旧路径；回退候选统一进入复核。规则、适用范围和对照证据见 [线路号恢复规则](route-recovery.md)。
+
 以下跟踪 pipeline `2.4` 在 `1-10` 批次中暴露的问题。`2.4.1` 已正式修复红框误选和精简模式裁切边界问题；其余项目按下表保留复核状态。原 `2.4` 输出不会因升级自动更新。
 
 | 问题 | 状态 | 实现或后续处理 |
@@ -128,7 +130,7 @@ AI 收到的裁片若只有边框或缺少底部文字，应保留不确定性�
 修改代码后使用相关测试入口：
 
 ```powershell
-python -m pytest tests/test_endpoints.py tests/test_landscape.py tests/test_route_geometry.py tests/test_frame_geometry.py -o addopts="" -q
+python -m pytest tests/test_endpoints.py tests/test_landscape.py tests/test_route_geometry.py tests/test_frame_geometry.py tests/test_route_recovery.py -o addopts="" -q
 ```
 
 普通回归使用合成样本或已保存的 OCR 记录，真实 OCR 默认跳过。真实横版回归、完整回归及样本目录变量见 [横版验证](landscape-validation.md#回归覆盖)。表中待修复/适配的项目仍需先增加复现样本，再按修改范围验证。

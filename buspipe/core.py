@@ -18,11 +18,14 @@ from PIL import Image, ImageDraw
 from buspipe.config import PipelineSettings, poster_direction, poster_station
 from buspipe.endpoints import recognize_endpoints
 from buspipe.templates import apply_template_profile
+from buspipe.templates import recovery_profile
+from buspipe.recovery import classify_non_route, recover_route_layout, locate_recovered_stop_band
 from buspipe.landscape import (
     UnsupportedLandscapeError,
     extract_landscape_entry,
     locate_landscape,
     locate_wide_landscape,
+    locate_stacked_landscape,
     route_from_filename,
 )
 from buspipe.layout import (
@@ -104,6 +107,7 @@ class PosterExtractor:
                 # Only dispatch on a matching single-route template signature.
                 pass
         red = make_red_mask(rgb)
+        recovered = None
         try:
             blocks = detect_route_blocks(rgb, settings.layout)
         except RuntimeError:
@@ -111,7 +115,24 @@ class PosterExtractor:
                 raise UnsupportedTemplateError(
                     f"unsupported landscape next-stop board ({width}x{height})"
                 ) from None
-            raise
+            if not endpoints_only or recovery_profile(width, height, path.stem) is None:
+                raise
+            classification = classify_non_route(rgb, path.stem, self.backend, settings)
+            if classification:
+                direction = poster_direction(path.stem)
+                station_name = poster_station(path.stem, current_stop)
+                return {
+                    "poster": path.stem, "path": str(path), "size": [width, height],
+                    "station": station_name, "direction": direction,
+                    "station_key": f"{station_name}-{direction}", "extract_mode": "endpoints",
+                    "entries": [], "skipped": True, **classification,
+                }
+            if recovery_profile(width, height, path.stem).name == "route_recovery_stacked":
+                return self._extract_stacked_landscape(path, rgb, current_stop, only_blocks, settings)
+            recovered = recover_route_layout(rgb, settings, path.stem)
+            if recovered is None:
+                raise
+            settings, blocks, red = recovered.settings, recovered.blocks, recovered.red_mask
         poster_name = path.stem
         direction = poster_direction(poster_name)
         if endpoints_only:
@@ -155,9 +176,14 @@ class PosterExtractor:
             header_x0 = min(3350, max(690, number_x1 + 20))
             try:
                 try:
-                    row_y0, row_y1, columns, row_debug = locate_stop_band(
-                        rgb, route_y1, next_start, settings.layout, adaptive=endpoints_only,
-                    )
+                    if recovered:
+                        row_y0, row_y1, columns, row_debug = locate_recovered_stop_band(
+                            rgb, route_y1, next_start, settings, recovery=recovered,
+                        )
+                    else:
+                        row_y0, row_y1, columns, row_debug = locate_stop_band(
+                            rgb, route_y1, next_start, settings.layout, adaptive=endpoints_only,
+                        )
                 except RuntimeError:
                     if width > height:
                         raise UnsupportedTemplateError(
@@ -276,6 +302,8 @@ class PosterExtractor:
                     station_key=f"{current_stop}-{direction}", endpoints=endpoints, stops=[],
                 )
                 refresh_entry_validation(entry)
+                if recovered:
+                    entry["recovery_profile"] = recovered.profile
             else:
                 stops, current_index = assemble_stops(recognized, current_stop, header["next_stop"])
                 expected_next = ""
@@ -317,6 +345,7 @@ class PosterExtractor:
             "size": [int(width), int(height)],
             "route_blocks": [[int(a), int(b)] for a, b in blocks],
             "entries": entries,
+            **({"recovery": {"profile": recovered.profile}} if recovered else {}),
         }
 
     def _extract_landscape(
@@ -369,6 +398,43 @@ class PosterExtractor:
                    endpoint_count=2, extract_mode="endpoints", column_count=len(entry["columns"]), row=entry["row"])
         if self.debug_dir is not None:
             self._draw_debug(rgb, poster, 0, layout.route_box[1], entry["row"][1], entry["endpoints"])
+        return result
+
+    def _extract_stacked_landscape(self, path, rgb, current_stop, only_blocks, settings):
+        layouts = locate_stacked_landscape(rgb, settings.landscape)
+        station = poster_station(path.stem, current_stop)
+        direction = poster_direction(path.stem)
+        profile = recovery_profile(rgb.shape[1], rgb.shape[0], path.stem).cache_key
+        result = {
+            "poster":path.stem, "path":str(path), "size":[rgb.shape[1],rgb.shape[0]],
+            "station":station, "direction":direction, "station_key":f"{station}-{direction}",
+            "extract_mode":"endpoints", "recovery":{"profile":profile},
+            "route_blocks":[[layout.route_box[1],layout.route_box[3]-1] for layout in layouts],
+            "entries":[],
+        }
+        for index,layout in enumerate(layouts):
+            if only_blocks is not None and index not in only_blocks:
+                continue
+            self._emit("block_start",poster=path.stem,block_index=index,block_count=len(layouts),
+                       route_y0=layout.route_box[1],route_y1=layout.route_box[3]-1)
+            cached=self.checkpoint.load(index) if self.checkpoint is not None else None
+            if cached is not None:
+                entry=copy.deepcopy(cached)
+                entry["cache_hit"]=True
+                self._emit("block_cached",block_index=index,route=entry.get("route",""))
+            else:
+                try:
+                    entry=extract_landscape_entry(rgb,layout,path.stem,station,direction,
+                                                 self.backend,settings,self.stats)
+                    entry.update(block_index=index,recovery_profile=profile)
+                    if self.checkpoint is not None:
+                        self.checkpoint.store(index,entry)
+                    self._emit("block_done",block_index=index,route=entry["route"],endpoint_count=2)
+                except Exception as exc:
+                    entry={"poster":path.stem,"direction":direction,"block_index":index,
+                           "route":"","error":str(exc)}
+                    self._emit("block_failed",block_index=index,error=str(exc))
+            result["entries"].append(entry)
         return result
 
     def _draw_debug(

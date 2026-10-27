@@ -112,6 +112,8 @@ stop_x1 保持原 4080
 
 ## 缓存与 profile
 
+线路号定位失败后的修复登记在独立的 `RECOVERY_PROFILES`，同样使用 `TemplateProfile`，只有 endpoints 原定位失败时才执行。原 `PROFILES` 和成功分支不替换。对应恢复族的 `name:version` 额外进入批处理缓存 key；未匹配族和 full 模式维持原 key。具体分类、隔离方式及验收证据见 [线路号恢复规则](route-recovery.md)。
+
 - 活跃 profile 的 `name:version` 会进入 poster/block 缓存 key。
 - 修改 profile 的 `version` 会隔离缓存。
 - 没有 profile 时保持旧 fingerprint，避免无意义地使历史缓存失效。

@@ -161,6 +161,8 @@ class ReviewEngine:
                 continue
             endpoints_only = entry.get("extract_mode") == "endpoints"
             if endpoints_only:
+                if entry.get("recovery_profile"):
+                    add(entry, "recovered_layout", 0, f"使用线路号定位恢复分支 {entry['recovery_profile']}，需核对线路号及有序首末站")
                 number_items = entry.get("number_items", [])
                 if not route:
                     add(entry, "route_number_unknown", 0, "未识别出线路号")
@@ -169,6 +171,15 @@ class ReviewEngine:
                 ):
                     add(entry, "route_number_uncertain", 0, "线路号 OCR 置信度不足或与已知线路提示不一致", ocr_text=route)
             stops = entry_targets(entry)
+            if endpoints_only:
+                for stop in stops:
+                    text = str(stop.get("name", ""))
+                    # A/B/C/D suffixes in building/metro names are legitimate.
+                    residual = re.sub(r"[A-Za-z](?=(?:区|口|座|栋|馆|出口))", "", text)
+                    if re.search(r"[_#■\u3040-\u30ffA-Za-z]", residual):
+                        seq = int(stop.get("seq", 0))
+                        crop = crop_path_for(stop.get("x0",0),stop.get("x1",0),stop.get("y0",0),stop.get("y1",0),route,direction,seq,"suspicious_text")
+                        add(entry,"suspicious_text",seq,"端点含异常字符，保留原文待复核",ocr_text=text,score=stop.get("score"),crop=crop)
             if not stops:
                 add(entry, "unknown_template", 0, "未识别出任何站名列，可能是新模板")
                 continue

@@ -51,6 +51,8 @@ python -m buspipe run "$sourceDir" --out "$outDir" --extract-mode endpoints --wo
 
 完成条件：执行进程结束，输出中存在 `batch_report.json`、`station_routes.json` / `.csv` 和复核 CSV；若部分图片失败，保留失败原因并进入结果汇报。
 
+当前 endpoints 对已登记族的定位失败图片可执行 [线路号恢复与无线路信息分类](route-recovery.md)。验收时另报 `counts.skipped` 及原因，不把它们计为成功或漏识别；恢复分支的 `recovered_layout` 和异常字符复核也要保留。
+
 ## 3. 可选：接入 AI 视觉复核
 
 用户选择 AI 复核并提供可用服务配置时，使用项目的 `HttpVlmReviewer`，在本地 OCR 参数后增加以下参数，并移除 `--no-vlm`：

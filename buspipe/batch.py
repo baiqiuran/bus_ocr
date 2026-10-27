@@ -31,7 +31,7 @@ from buspipe.parsing import (
     normalize_for_compare,
     plausible_endpoint_pair,
 )
-from buspipe.templates import template_profile_key
+from buspipe.templates import template_profile_key, recovery_profile_key
 from buspipe.review import PosterSummary, ReviewEngine, apply_overrides, summaries_from_result
 from buspipe.store import (
     STATUS_DONE,
@@ -468,6 +468,10 @@ def _block_failure(result: dict[str, Any]) -> str:
 
 
 def _finalize_result(result: dict[str, Any]) -> str:
+    if result.get("skipped"):
+        if result.get("extract_mode") != "endpoints" or result.get("entries") or not result.get("skip_reason"):
+            return "invalid skipped-board result"
+        return ""
     _mark_invalid_blocks(result)
     failure = _block_failure(result)
     if failure:
@@ -612,9 +616,18 @@ def run_batch(
                 profile_key = template_profile_key(
                     row_width, row_height, Path(row["path"]).stem
                 )
+                fallback_key = (
+                    recovery_profile_key(row_width, row_height, Path(row["path"]).stem)
+                    if settings.extract_mode == "endpoints" else ""
+                )
+                profile_extra = {}
+                if profile_key:
+                    profile_extra["template_profile"] = profile_key
+                if fallback_key:
+                    profile_extra["route_recovery"] = fallback_key
                 base_key = (
-                    settings.fingerprint({"template_profile": profile_key})
-                    if profile_key
+                    settings.fingerprint(profile_extra)
+                    if profile_extra
                     else settings.fingerprint()
                 )
                 result: dict[str, Any] | None = None
@@ -700,6 +713,11 @@ def run_batch(
                     store.set_status(image_hash, STATUS_PENDING)
                     raise BatchError("result missing for resumed poster; rerun will extract")
 
+            if result.get("skipped"):
+                store.replace_review_items(image_hash, [])
+                store.set_status(image_hash, "skipped", error=str(result["skip_reason"]))
+                poster_files[image_hash] = str(file_path)
+                return image_hash, timings, None
             override_rows = store.overrides(image_hash)
             if override_rows:
                 apply_overrides(result, override_rows)

@@ -7,7 +7,7 @@ sent to OCR; filename compass directions never determine route reading order.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Sequence
 
 import numpy as np
@@ -198,6 +198,22 @@ def _wide_row_band(rgb: np.ndarray) -> tuple[int, int]:
         raise UnsupportedLandscapeError("cannot locate wide stop row")
     _, y0, y1 = max(candidates)
     return y0, y1
+
+
+def locate_stacked_landscape(rgb: np.ndarray, cfg: LandscapeSettings) -> list[LandscapeLayout]:
+    """The registered 2961x3912 artwork contains two independent sign faces."""
+    if rgb.shape[:2] != (3912, 2961):
+        raise UnsupportedLandscapeError("unregistered stacked-board dimensions")
+    split = round(rgb.shape[0] * .52)
+    front = locate_landscape(rgb[:split], replace(cfg, caption_top=.62, caption_bottom=.84))
+    back = locate_landscape(rgb[split:], cfg)
+    back.route_box = (back.route_box[0], back.route_box[1]+split,
+                      back.route_box[2], back.route_box[3]+split)
+    back.groups = [[{**column, "y0":column["y0"]+split, "y1":column["y1"]+split}
+                    for column in group] for group in back.groups]
+    front.template = "stacked_landscape_front"
+    back.template = "stacked_landscape_back"
+    return [front, back]
 
 
 def locate_wide_landscape(rgb: np.ndarray, cfg: LandscapeSettings) -> LandscapeLayout:

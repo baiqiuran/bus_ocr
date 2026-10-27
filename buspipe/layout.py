@@ -44,14 +44,16 @@ def make_red_mask(rgb: np.ndarray) -> np.ndarray:
     return (r > 150) & (g < 90) & (b < 90)
 
 
-def detect_route_blocks(rgb: np.ndarray, settings: LayoutSettings) -> list[tuple[int, int]]:
+def detect_route_blocks(
+    rgb: np.ndarray, settings: LayoutSettings, *, red_mask: np.ndarray | None = None,
+) -> list[tuple[int, int]]:
     """Find the large red route numbers in the left margin.
 
     A route title can wrap onto two lines (e.g. a shuttle line plus its
     parenthetical campus name).  Nearby red runs are therefore merged before
     the height filter so the two lines are treated as one route block.
     """
-    red = make_red_mask(rgb)
+    red = make_red_mask(rgb) if red_mask is None else red_mask
     col_count = red[:, settings.route_x0:settings.route_x1].sum(axis=1)
     rows = np.where(col_count > 5)[0]
     runs = group_indices(rows, max_gap=5)

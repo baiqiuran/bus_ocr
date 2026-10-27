@@ -37,6 +37,7 @@ def build_report(store: ManifestStore, result: Any) -> dict[str, Any]:
     total = counts.get("total", 0)
     done = counts.get(STATUS_DONE, 0)
     failed = counts.get("failed", 0)
+    skipped = counts.get("skipped", 0)
     duplicates = counts.get("duplicate", 0)
     pending_review = sum(review_counts.get(key, 0) for key in ("open", "needs_human", "vlm_only"))
     failures = [
@@ -66,7 +67,8 @@ def build_report(store: ManifestStore, result: Any) -> dict[str, Any]:
             "total": total,
             "done": done,
             "failed": failed,
-            "incomplete": max(0, total - done - failed),
+            "skipped": skipped,
+            "incomplete": max(0, total - done - failed - skipped),
             "duplicates": duplicates,
             "by_status": {key: value for key, value in counts.items() if key not in {"total", "duplicate"}},
         },
@@ -80,6 +82,10 @@ def build_report(store: ManifestStore, result: Any) -> dict[str, Any]:
         "ocr": result.ocr,
         "vlm": result.vlm,
         "failures": failures,
+        "skipped": [
+            {"image_hash": row["image_hash"], "path": row["path"], "reason": row["error"]}
+            for row in store.posters() if row["status"] == "skipped"
+        ],
         "posters_written_this_run": len(result.poster_files),
     }
 
@@ -106,6 +112,7 @@ def _markdown(report: dict[str, Any]) -> str:
         f"| 唯一图片 | {counts['total']} |",
         f"| 完成 | {counts['done']} |",
         f"| 失败 | {counts['failed']} |",
+        f"| 无线路信息（跳过） | {counts.get('skipped', 0)} |",
         f"| 未完成 | {counts['incomplete']} |",
         f"| 重复图片（未处理） | {counts['duplicates']} |",
         f"| 复核项（待处理） | {review['pending']} |",
@@ -142,6 +149,11 @@ def _markdown(report: dict[str, Any]) -> str:
             lines.append(
                 f"| `{Path(item['path']).name}` | {item['station']} | {item['direction']} | {error} | {item['attempts']} |"
             )
+        lines.append("")
+    if report.get("skipped"):
+        lines += ["## 无线路信息（跳过）", "", "| 图片 | 原因 |", "| --- | --- |"]
+        for item in report["skipped"]:
+            lines.append(f"| `{Path(item['path']).name}` | {item['reason']} |")
         lines.append("")
     if review["csv"]:
         lines += ["## 复核", "", f"复核队列：`{review['csv']}`", ""]

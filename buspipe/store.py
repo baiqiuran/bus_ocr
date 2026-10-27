@@ -19,6 +19,7 @@ STATUS_VALIDATED = "validated"
 STATUS_VLM_REVIEW = "vlm_review"
 STATUS_DONE = "done"
 STATUS_FAILED = "failed"
+STATUS_SKIPPED = "skipped"
 
 # Terminal for the automatic pipeline.  "failed" is retried by policy.
 PIPELINE_STATUSES = (
@@ -29,6 +30,7 @@ PIPELINE_STATUSES = (
     STATUS_VLM_REVIEW,
     STATUS_DONE,
     STATUS_FAILED,
+    STATUS_SKIPPED,
 )
 
 REASON_PRIORITY = {
@@ -321,7 +323,7 @@ class ManifestStore:
             item = dict(row)
             if wanted is not None and item["image_hash"] not in wanted:
                 continue
-            if item["status"] in {STATUS_DONE, STATUS_VLM_REVIEW}:
+            if item["status"] in {STATUS_DONE, STATUS_VLM_REVIEW, STATUS_SKIPPED}:
                 continue
             if item["status"] == STATUS_FAILED and (not retry_failed or item["attempts"] >= max_attempts):
                 continue
