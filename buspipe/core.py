@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw
 
 from buspipe.config import PipelineSettings, poster_direction, poster_station
 from buspipe.endpoints import recognize_endpoints
+from buspipe.templates import apply_template_profile
 from buspipe.landscape import (
     UnsupportedLandscapeError,
     extract_landscape_entry,
@@ -87,13 +88,17 @@ class PosterExtractor:
     ) -> dict[str, Any]:
         path = Path(path)
         settings = self.settings
-        endpoints_only = settings.extract_mode == "endpoints"
         current_stop = station if station is not None else settings.current_stop
         rgb = np.asarray(Image.open(path).convert("RGB"))
         height, width, _ = rgb.shape
+        # Template profiles are opt-in and default to legacy settings.  They
+        # must be resolved from the actual image dimensions, not the CLI
+        # defaults, because a single run can contain several template families.
+        settings, _profile_key = apply_template_profile(settings, width, height, path.stem)
+        endpoints_only = settings.extract_mode == "endpoints"
         if endpoints_only and width > height:
             try:
-                return self._extract_landscape(path, rgb, current_stop, only_blocks)
+                return self._extract_landscape(path, rgb, current_stop, only_blocks, settings)
             except UnsupportedTemplateError:
                 # Cropped multi-route sheets can also be wider than tall.
                 # Only dispatch on a matching single-route template signature.
@@ -316,15 +321,16 @@ class PosterExtractor:
 
     def _extract_landscape(
         self, path: Path, rgb: np.ndarray, current_stop: str, only_blocks: set[int] | None,
+        settings: PipelineSettings,
     ) -> dict[str, Any]:
         height, width = rgb.shape[:2]
         poster = path.stem
         station, direction = poster_station(poster, current_stop), poster_direction(poster)
         try:
-            layout = locate_landscape(rgb, self.settings.landscape)
+            layout = locate_landscape(rgb, settings.landscape)
         except UnsupportedLandscapeError as regular_error:
             try:
-                layout = locate_wide_landscape(rgb, self.settings.landscape)
+                layout = locate_wide_landscape(rgb, settings.landscape)
             except UnsupportedLandscapeError as wide_error:
                 raise UnsupportedTemplateError(
                     f"unsupported landscape next-stop board ({width}x{height}): "
@@ -350,7 +356,7 @@ class PosterExtractor:
             return result
         try:
             entry = extract_landscape_entry(rgb, layout, poster, station, direction,
-                                            self.backend, self.settings, self.stats)
+                                            self.backend, settings, self.stats)
         except Exception as exc:
             self._emit("block_failed", poster=poster, block_index=0, error=str(exc))
             result["entries"].append({"poster": poster, "direction": direction, "block_index": 0,

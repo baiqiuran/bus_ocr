@@ -115,6 +115,8 @@ python extract.py --poster 安平小区-东-01 --extract-mode endpoints --out ou
 
 早期诊断使用的 `stop_x1=4000`、`route_end + 1100` 仅为对照实验。正式修复按像素和连续文字段确定范围，没有把这两个临时坐标作为通用配置；验证范围见 [裁切修复验证](crop-fix-validation.md)。
 
+修改任何版面 px 阈值前，按 [模板族阈值修改规则](template-profiles.md) 先固定旧模板基准，再通过 `buspipe/templates.py` 的模板族 profile 做隔离；不要直接改全局默认值。
+
 AI 收到的裁片若只有边框或缺少底部文字，应保留不确定性并定位原图；AI 复核本身不能恢复裁片外未提供的内容。现有复核状态不应通过猜站名或删除限定词来消除。
 
 ## 验证基线与回归

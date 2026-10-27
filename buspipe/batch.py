@@ -31,6 +31,7 @@ from buspipe.parsing import (
     normalize_for_compare,
     plausible_endpoint_pair,
 )
+from buspipe.templates import template_profile_key
 from buspipe.review import PosterSummary, ReviewEngine, apply_overrides, summaries_from_result
 from buspipe.store import (
     STATUS_DONE,
@@ -600,7 +601,22 @@ def run_batch(
             status = row["status"]
             if status in {STATUS_PENDING, STATUS_LAYOUT_DONE, STATUS_OCR_DONE, STATUS_FAILED}:
                 store.set_status(image_hash, STATUS_LAYOUT_DONE, attempt=True)
-                base_key = settings.fingerprint()
+                # A profile may change layout/landscape thresholds per image.
+                # Include its version in the key, but keep the exact legacy
+                # fingerprint when no profile matches so old caches remain valid.
+                try:
+                    row_width = int(row.get("width")) if row.get("width") is not None else None
+                    row_height = int(row.get("height")) if row.get("height") is not None else None
+                except (TypeError, ValueError):
+                    row_width = row_height = None
+                profile_key = template_profile_key(
+                    row_width, row_height, Path(row["path"]).stem
+                )
+                base_key = (
+                    settings.fingerprint({"template_profile": profile_key})
+                    if profile_key
+                    else settings.fingerprint()
+                )
                 result: dict[str, Any] | None = None
                 if config.use_cache:
                     poster_cache = PosterCache(
