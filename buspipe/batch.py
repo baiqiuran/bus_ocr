@@ -26,7 +26,11 @@ from buspipe.ocr import LocalRapidOcrBackend, OcrBackend, OcrStats
 from PIL import Image
 
 from buspipe.report import write_outputs
-from buspipe.parsing import entry_targets, normalize_for_compare
+from buspipe.parsing import (
+    entry_targets,
+    normalize_for_compare,
+    plausible_endpoint_pair,
+)
 from buspipe.review import PosterSummary, ReviewEngine, apply_overrides, summaries_from_result
 from buspipe.store import (
     STATUS_DONE,
@@ -402,13 +406,85 @@ def _read_summaries(path: Path) -> list[PosterSummary]:
     ]
 
 
+def _is_endpoints_result(result: dict[str, Any]) -> bool:
+    return result.get("extract_mode") == "endpoints" or any(
+        "endpoints" in entry for entry in result.get("entries", [])
+    )
+
+
+def _entry_usable(entry: dict[str, Any], *, endpoints_mode: bool) -> bool:
+    if entry.get("error"):
+        return False
+    if not endpoints_mode:
+        return True
+    endpoints = entry.get("endpoints") or []
+    if len(endpoints) < 2:
+        return False
+    return plausible_endpoint_pair(
+        endpoints[0].get("name", ""),
+        endpoints[-1].get("name", ""),
+    )
+
+
+def _mark_invalid_blocks(result: dict[str, Any]) -> None:
+    """Keep OCR captions such as 开/往 out of the exported stop pairs."""
+    if not _is_endpoints_result(result):
+        return
+    for entry in result.get("entries", []):
+        if entry.get("error"):
+            continue
+        endpoints = entry.get("endpoints") or []
+        first = str(endpoints[0].get("name", "")) if endpoints else ""
+        last = str(endpoints[-1].get("name", "")) if len(endpoints) >= 2 else ""
+        if plausible_endpoint_pair(first, last):
+            continue
+        entry["error"] = f"implausible endpoint pair: {first or '<empty>'}/{last or '<empty>'}"
+        entry["invalid_endpoints"] = [first, last]
+
+
 def _block_failure(result: dict[str, Any]) -> str:
     entries = result.get("entries", [])
     if not entries:
         return "no route blocks extracted"
-    failed = [entry for entry in entries if "error" in entry]
+    failed = [entry for entry in entries if entry.get("error")]
+    endpoints_mode = _is_endpoints_result(result)
+    if not endpoints_mode:
+        # Full mode has no endpoint fallback; one failed band still fails the
+        # poster so its completed bands can resume from the block cache.
+        return str(failed[0].get("error") or "block failed") if failed else ""
+    # A tall poster often contains several independent route bands.  Keep the
+    # successful bands even when one band has no usable endpoint; the failed
+    # band remains in the result and is turned into a layout_error review item.
+    usable = [
+        entry for entry in entries
+        if _entry_usable(entry, endpoints_mode=True)
+    ]
+    if usable:
+        return ""
     if failed:
         return str(failed[0].get("error") or "block failed")
+    return "no usable endpoint pair"
+
+
+def _finalize_result(result: dict[str, Any]) -> str:
+    _mark_invalid_blocks(result)
+    failure = _block_failure(result)
+    if failure:
+        return failure
+    partial = _is_endpoints_result(result) and any(
+        entry.get("error") for entry in result.get("entries", [])
+    )
+    if partial:
+        result["partial"] = True
+        result["block_errors"] = [
+            {
+                "block_index": entry.get("block_index", 0),
+                "route": entry.get("route", ""),
+                "error": entry.get("error", ""),
+            }
+            for entry in result.get("entries", [])
+            if entry.get("error")
+        ]
     return ""
 
 
@@ -577,14 +653,18 @@ def run_batch(
                             event_sink=event_sink,
                         )
                         result = poster_extractor.extract(Path(row["path"]), station=station)
-                    failure = _block_failure(result)
+                    failure = _finalize_result(result)
                     if failure:
                         raise BatchError(failure)
-                    if config.use_cache:
+                    if config.use_cache and not result.get("partial"):
                         PosterCache(
                             FileCache(work_dir / "cache", "posters", cache_stats),
                             key_for({"kind": "poster", "image_hash": image_hash, "base": base_key}),
                         ).store(result)
+                else:
+                    failure = _finalize_result(result)
+                    if failure:
+                        raise BatchError(failure)
                 timings["extract"] = f"{time.perf_counter() - local_start:.3f}"
                 store.set_status(image_hash, STATUS_OCR_DONE)
                 _write_result(file_path, result)

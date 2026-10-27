@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.scratch/
 .venv/
 output/
 debug/

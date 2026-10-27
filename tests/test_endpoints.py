@@ -31,6 +31,21 @@ from tests.synth import (
 SETTINGS = PipelineSettings(extract_mode="endpoints", route_hints={})
 
 
+class DistinctEndpointBackend(SyntheticOcrBackend):
+    """Give the synthetic first and last columns distinct names."""
+
+    def _one(self, image):
+        items = super()._one(image)
+        stops = sorted(
+            [item for item in items if item.get("text") == "测试站"],
+            key=lambda item: item["x0"],
+        )
+        if len(stops) >= 2:
+            stops[0]["text"] = "测试甲站"
+            stops[-1]["text"] = "测试乙站"
+        return items
+
+
 class NamedBackend(SyntheticOcrBackend):
     def __init__(self):
         super().__init__()
@@ -129,6 +144,24 @@ def test_single_group_is_not_invented_as_two_terminals():
         recognize_endpoints(None, [_column(10, "单站名")], 100, 300, None, SETTINGS)
 
 
+def test_single_block_filename_route_hint_wins(tmp_path):
+    path = make_poster(tmp_path / "站点-西-206快线-01.jpg")
+    entry = PosterExtractor(SyntheticOcrBackend(), SETTINGS).extract(path)["entries"][0]
+    assert entry["route"] == "206快线"
+    assert entry["route_ocr"] == "1"
+
+    path = make_poster(tmp_path / "站点-西-贵安4号-01.jpg")
+    entry = PosterExtractor(SyntheticOcrBackend(), SETTINGS).extract(path)["entries"][0]
+    assert entry["route"] == "贵安4"
+    assert entry["route_ocr"] == "1"
+
+
+def test_multi_block_filename_route_hint_does_not_override_each_block(tmp_path):
+    path = make_poster(tmp_path / "站点-西-206快线-01.jpg", blocks=2, routes=(1, 2))
+    entries = PosterExtractor(SyntheticOcrBackend(), SETTINGS).extract(path)["entries"]
+    assert [entry["route"] for entry in entries] == ["1", "2"]
+
+
 def test_endpoint_cache_and_full_mode_are_separate(tmp_path):
     assert SETTINGS.fingerprint() != replace(SETTINGS, extract_mode="full").fingerprint()
     path = _named_poster(tmp_path / "站点-西-01.jpg")
@@ -204,7 +237,7 @@ def test_endpoint_vlm_checks_only_uncertain_terminal(tmp_path):
     with serve(service) as url:
         result = run_batch(
             source, BatchConfig(out_dir=tmp_path / "out", pipeline=SETTINGS, enable_vlm=True),
-            ocr_backend=SyntheticOcrBackend(),
+            ocr_backend=DistinctEndpointBackend(),
             vlm_reviewer=HttpVlmReviewer(VlmConfig(url=url, model="fake-vlm", disable_proxy=True)),
         )
     assert result.vlm["calls"] == result.vlm["confirmed"] == 1
@@ -212,7 +245,7 @@ def test_endpoint_vlm_checks_only_uncertain_terminal(tmp_path):
     assert len([part for part in content if part["type"] == "image_url"]) == 1
     entry = json.loads(Path(next(iter(result.poster_files.values()))).read_text(encoding="utf-8"))["entries"][0]
     assert entry["endpoints"][0]["source"] == "ocr+vlm"
-    assert entry["route_direction"] == "测试站→测试站"
+    assert entry["route_direction"] == "测试站→测试乙站"
 
 
 def test_route_number_missing_is_reviewed(tmp_path):

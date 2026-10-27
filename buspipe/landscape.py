@@ -15,13 +15,41 @@ from PIL import Image
 
 from buspipe.config import LandscapeSettings, PipelineSettings
 from buspipe.endpoints import assemble_endpoint
-from buspipe.layout import group_columns, group_indices, make_red_mask
+from buspipe.layout import (
+    LayoutSettings,
+    detect_stop_columns,
+    group_columns,
+    group_indices,
+    make_mask,
+    make_red_mask,
+)
 from buspipe.ocr import OcrBackend, OcrError, OcrParams, OcrStats, dedup_items, normalize_items
 from buspipe.parsing import pick_route_number, refresh_entry_validation
 
 
 class UnsupportedLandscapeError(RuntimeError):
     pass
+
+
+# Wide single-route boards put the route number and "下站/开往" caption above a
+# full-width row of vertical stop names.  The regular landscape templates put
+# their caption at the bottom, so these need a separate geometry probe.
+# These are module constants rather than PipelineSettings fields on purpose:
+# changing the settings fingerprint would invalidate the block cache for the
+# already completed vertical retry.
+_WIDE_MIN_ASPECT = 2.6
+_WIDE_ROUTE_RIGHT = 0.25
+_WIDE_ROUTE_BOTTOM = 0.34
+_WIDE_ROW_MIN_HEIGHT = 0.10
+_WIDE_ROW_MAX_HEIGHT = 0.62
+_WIDE_ROW_MIN_TOP = 0.15
+_WIDE_ROW_MAX_BOTTOM = 0.92
+_WIDE_MIN_GROUPS = 5
+_WIDE_MAX_GROUPS = 70
+_WIDE_COLUMN_MAX_WIDTH = 0.09
+_WIDE_COLUMN_MIN_HEIGHT = 0.10
+_WIDE_COLUMN_MIN_ASPECT = 1.8
+_WIDE_EDGE_MARGIN = 0.20
 
 
 @dataclass
@@ -151,8 +179,97 @@ def locate_landscape(rgb: np.ndarray, cfg: LandscapeSettings) -> LandscapeLayout
     return LandscapeLayout("landscape_back", route_box, _back_groups(rgb, divider, cfg), arrow)
 
 
+def _wide_row_band(rgb: np.ndarray) -> tuple[int, int]:
+    """Return the densest full-width band of tall vertical stop names."""
+    height, width = rgb.shape[:2]
+    mask = make_mask(rgb)
+    counts = mask.sum(axis=1)
+    threshold = max(5, round(width * 0.012))
+    runs = group_indices(np.flatnonzero(counts > threshold), max_gap=12)
+    candidates: list[tuple[int, int, int]] = []
+    for y0, y1 in runs:
+        band_height = y1 - y0 + 1
+        if not height * _WIDE_ROW_MIN_HEIGHT <= band_height <= height * _WIDE_ROW_MAX_HEIGHT:
+            continue
+        if y0 < height * _WIDE_ROW_MIN_TOP or y1 > height * _WIDE_ROW_MAX_BOTTOM:
+            continue
+        candidates.append((int(counts[y0:y1 + 1].sum()), int(y0), int(y1)))
+    if not candidates:
+        raise UnsupportedLandscapeError("cannot locate wide stop row")
+    _, y0, y1 = max(candidates)
+    return y0, y1
+
+
+def locate_wide_landscape(rgb: np.ndarray, cfg: LandscapeSettings) -> LandscapeLayout:
+    """Locate the wide, single-route "full stop row" family.
+
+    The route line is printed top-left, followed by a caption such as
+    ``下站… 开往…``.  The first and last stops are the two ends of the vertical
+    stop row below it; the caption's next stop is deliberately not used.
+    """
+    height, width = rgb.shape[:2]
+    if width / height < _WIDE_MIN_ASPECT:
+        raise UnsupportedLandscapeError("not a wide landscape board")
+
+    red = make_red_mask(rgb)
+    # Page frames and full-width rules can otherwise dominate the route box.
+    frame_columns = red.mean(axis=0) >= 0.98
+    frame_rows = red.mean(axis=1) >= 0.98
+    red[:, frame_columns] = False
+    red[frame_rows, :] = False
+    route_region = red[
+        : round(height * _WIDE_ROUTE_BOTTOM),
+        : round(width * _WIDE_ROUTE_RIGHT),
+    ]
+    if route_region.sum() < width * height * 0.0008:
+        raise UnsupportedLandscapeError("no wide route title")
+    route_box = _bbox(route_region)
+    route_width = route_box[2] - route_box[0]
+    route_height = route_box[3] - route_box[1]
+    if route_width < width * 0.02 or route_height < height * 0.04:
+        raise UnsupportedLandscapeError("invalid wide route title")
+
+    row_y0, row_y1 = _wide_row_band(rgb)
+    layout_settings = LayoutSettings(stop_x0=0, stop_x1=width)
+    columns = detect_stop_columns(rgb, row_y0, row_y1, layout_settings, split_wide=True)
+    filtered: list[dict[str, Any]] = []
+    for column in columns:
+        column_width = column["x1"] - column["x0"] + 1
+        column_height = column["y1"] - column["y0"] + 1
+        if column_width > width * _WIDE_COLUMN_MAX_WIDTH:
+            continue
+        if column_height < height * _WIDE_COLUMN_MIN_HEIGHT:
+            continue
+        if column_height / max(1, column_width) < _WIDE_COLUMN_MIN_ASPECT:
+            continue
+        filtered.append({**column, "vertical": True})
+    if not filtered:
+        raise UnsupportedLandscapeError("no wide stop columns")
+
+    groups = group_columns(filtered)
+    if not _WIDE_MIN_GROUPS <= len(groups) <= _WIDE_MAX_GROUPS:
+        raise UnsupportedLandscapeError(f"unexpected wide stop-column count: {len(groups)}")
+    first = [filtered[index] for index in groups[0]]
+    last = [filtered[index] for index in groups[-1]]
+    if first[0]["x0"] > width * _WIDE_EDGE_MARGIN or last[-1]["x1"] < width * (1 - _WIDE_EDGE_MARGIN):
+        raise UnsupportedLandscapeError("wide terminal columns are not at the row edges")
+    return LandscapeLayout("landscape_wide", route_box, [first, last], "right")
+
+
 def route_from_filename(poster: str) -> str:
     match = re.search(r"-[东西南北][^-]*-(.+)-\d+$", poster)
+    if match:
+        route = canonical_route(match[1])
+        if route:
+            return route
+        # Artwork notes after the route number (e.g. 108-电子菲林) are common.
+        return canonical_route(match[1].split("-", 1)[0])
+    # Terminal/boarding-area artwork often has no compass token.  The route
+    # follows a layout marker instead, e.g. 金山公交总站-出站-111-菲林-01.
+    match = re.search(
+        r"-(?:出站|上客点|下客点|上客区|下客区|场站|首末站|站外|站内|上车点|下车点|站台)-([^-]+)",
+        poster,
+    )
     return canonical_route(match[1]) if match else ""
 
 

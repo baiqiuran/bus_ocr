@@ -26,6 +26,60 @@ def normalize_stop(text: str, *, preserve_parentheses: bool = False) -> str:
     return text if preserve_parentheses else text.strip("()")
 
 
+_PLACEHOLDER_ENDPOINTS = {
+    "开",
+    "往",
+    "开往",
+    "下站",
+    "下一站",
+    "上一站",
+    "上站",
+    "首末站",
+    "首站",
+    "末站",
+    "本站",
+    "站台",
+    "站牌",
+    "方向",
+    "上客点",
+    "下客点",
+    "上客区",
+    "下客区",
+    "上车点",
+    "下车点",
+    "出站",
+    "进站",
+    "场站",
+    "票价",
+    "一元",
+    "一票制",
+}
+
+
+def plausible_endpoint_name(name: Any) -> bool:
+    """Reject captions and one-character OCR fragments as stop names."""
+    text = normalize_stop(str(name or ""))
+    if len(text) < 2:
+        return False
+    if text in _PLACEHOLDER_ENDPOINTS:
+        return False
+    if text.startswith(("开往", "下站", "下一站")):
+        return False
+    # A stop name needs at least one letter or Han character.  Pure digits,
+    # punctuation and single glyphs are detector artefacts, not terminals.
+    return any(ch.isalpha() or "\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def plausible_endpoint_pair(first: Any, last: Any) -> bool:
+    first_text = normalize_stop(str(first or ""))
+    last_text = normalize_stop(str(last or ""))
+    return (
+        plausible_endpoint_name(first_text)
+        and plausible_endpoint_name(last_text)
+        and first_text != last_text
+    )
+
+
 def pick_route_number(
     items: Sequence[dict[str, Any]],
     route_hints: Mapping[str, Sequence[str]],
@@ -54,11 +108,16 @@ def pick_route_number(
     candidates = []
     for raw, score in readings:
         text = re.sub(r"\s+", "", raw).replace("（", "(").split("(", 1)[0]
-        match = re.fullmatch(r"([A-Za-z\u4e00-\u9fff]*?)([0-9OoIl]+)(?:路)?", text)
+        match = re.fullmatch(
+            r"([A-Za-z\u4e00-\u9fff]*?)([0-9OoIl]+)(?:路|号线|号|线)?(快线|专线|支线|区间)?",
+            text,
+        )
         if match:
-            prefix, number = match.groups()
+            prefix, number, suffix = match.groups()
             number = number.translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1"}))
-            candidates.append((len(number), len(prefix), score, prefix.upper() + number))
+            candidates.append(
+                (len(number), len(prefix), score, prefix.upper() + number + (suffix or ""))
+            )
         elif re.fullmatch(r"[\u4e00-\u9fff]+(?:专线|环线)", text):
             candidates.append((0, len(text), score, text))
     if candidates:

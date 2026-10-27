@@ -17,7 +17,13 @@ from PIL import Image, ImageDraw
 
 from buspipe.config import PipelineSettings, poster_direction, poster_station
 from buspipe.endpoints import recognize_endpoints
-from buspipe.landscape import UnsupportedLandscapeError, extract_landscape_entry, locate_landscape
+from buspipe.landscape import (
+    UnsupportedLandscapeError,
+    extract_landscape_entry,
+    locate_landscape,
+    locate_wide_landscape,
+    route_from_filename,
+)
 from buspipe.layout import (
     detect_route_blocks,
     locate_stop_band,
@@ -203,16 +209,29 @@ class PosterExtractor:
                 )
                 continue
 
+            hints = settings.route_hints.get(poster_name, [])
+            filename_route = (
+                route_from_filename(poster_name)
+                if len(blocks) == 1 and not hints
+                else ""
+            )
             if endpoints_only:
                 # Keep actual OCR separate from an optional known-poster hint.
                 route_ocr = pick_route_number(number_items, {}, poster_name, index)
-                hints = settings.route_hints.get(poster_name, [])
-                header = {"route": hints[index] if index < len(hints) else route_ocr, "route_ocr": route_ocr}
+                route = hints[index] if index < len(hints) else filename_route or route_ocr
+                header = {
+                    "route": route,
+                    "route_ocr": route_ocr,
+                    "route_filename": filename_route,
+                }
             else:
                 header = parse_header(
                     header_items, number_items, time_items, date_items,
                     settings.route_hints, poster_name, index, row_y0,
                 )
+                if filename_route:
+                    header["route"] = filename_route
+                    header["route_filename"] = filename_route
             try:
                 if endpoints_only:
                     endpoints, recognized = recognize_endpoints(
@@ -303,8 +322,14 @@ class PosterExtractor:
         station, direction = poster_station(poster, current_stop), poster_direction(poster)
         try:
             layout = locate_landscape(rgb, self.settings.landscape)
-        except UnsupportedLandscapeError as exc:
-            raise UnsupportedTemplateError(f"unsupported landscape next-stop board ({width}x{height}): {exc}") from exc
+        except UnsupportedLandscapeError as regular_error:
+            try:
+                layout = locate_wide_landscape(rgb, self.settings.landscape)
+            except UnsupportedLandscapeError as wide_error:
+                raise UnsupportedTemplateError(
+                    f"unsupported landscape next-stop board ({width}x{height}): "
+                    f"{regular_error}; wide: {wide_error}"
+                ) from wide_error
         result = {
             "poster": poster, "path": str(path), "size": [width, height],
             "extract_mode": "endpoints", "template": layout.template,

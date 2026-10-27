@@ -12,6 +12,8 @@ from typing import Any
 
 from buspipe.cache import _replace_with_retry, atomic_write_text
 from buspipe.config import poster_direction, poster_station
+from buspipe.landscape import route_from_filename
+from buspipe.parsing import plausible_endpoint_pair
 from buspipe.store import (
     STATUS_DONE,
     STATUS_VALIDATED,
@@ -169,15 +171,20 @@ def write_station_routes(store: ManifestStore, out_dir: Path) -> dict[str, str]:
             for item in store.review_items(image_hash=poster["image_hash"])
             if item["status"] in {"open", "needs_human", "vlm_only"}
         }
-        for entry in payload.get("entries", []):
+        entries = payload.get("entries", [])
+        stem = payload.get("poster", Path(poster["path"]).stem)
+        filename_route = route_from_filename(stem) if len(entries) == 1 else ""
+        station = poster_station(stem, poster["station"])
+        direction = poster_direction(stem)
+        for entry in entries:
             if entry.get("error"):
                 continue
-            stem = payload.get("poster", Path(poster["path"]).stem)
-            station = poster_station(stem, poster["station"])
-            direction = poster_direction(stem)
-            route = str(entry.get("route", ""))
+            route_original = str(entry.get("route", ""))
+            route = filename_route or route_original
             if entry.get("extract_mode") == "endpoints":
                 first, last = entry.get("first_stop", ""), entry.get("last_stop", "")
+                if not plausible_endpoint_pair(first, last):
+                    continue
             else:
                 stops = entry.get("stops", [])
                 first = stops[0].get("display_name", "") if stops else ""
@@ -186,7 +193,12 @@ def write_station_routes(store: ManifestStore, out_dir: Path) -> dict[str, str]:
                 "station": station, "direction": direction, "station_key": f"{station}-{direction}",
                 "route": route, "first_stop": first, "last_stop": last,
                 "route_direction": f"{first}→{last}" if first and last else "",
-                "needs_review": (route, direction) in unresolved or not all((route, first, last)) or direction == "未知",
+                "needs_review": (
+                    (route, direction) in unresolved
+                    or (route_original, direction) in unresolved
+                    or not all((route, first, last))
+                    or direction == "未知"
+                ),
                 "poster": stem, "block_index": entry.get("block_index", 0),
             })
     fields = ["station", "direction", "station_key", "route", "first_stop", "last_stop", "route_direction", "needs_review", "poster", "block_index"]

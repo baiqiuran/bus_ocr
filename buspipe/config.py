@@ -144,6 +144,21 @@ class PipelineSettings:
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+FACILITY_DIRECTION_TOKENS = (
+    "场站",
+    "出站",
+    "进站",
+    "上客点",
+    "下客点",
+    "上客区",
+    "下客区",
+    "首末站",
+    "上车点",
+    "下车点",
+    "站台",
+)
+
+
 def poster_direction(name: str) -> str:
     for token in DIRECTION_TOKENS:
         if f"-{token}-" in name:
@@ -152,10 +167,17 @@ def poster_direction(name: str) -> str:
     # Some files append artwork notes to the direction segment, e.g.
     # 安铺村-北，小灯箱80x130CM-01.jpg; the segment still starts with 北.
     for part in parts[1:]:
+        part = part.strip()
         for token in DIRECTION_TOKENS:
             if part.startswith(token):
                 return token
-    return parts[1] if len(parts) >= 3 else "未知"
+    if len(parts) >= 3:
+        part = parts[1].strip()
+        for token in FACILITY_DIRECTION_TOKENS:
+            if part == token or part.startswith(token):
+                return token
+        return "未知"
+    return "未知"
 
 
 def poster_station(name: str, fallback: str = "") -> str:
@@ -163,11 +185,11 @@ def poster_station(name: str, fallback: str = "") -> str:
     for token in DIRECTION_TOKENS:
         marker = f"-{token}-"
         if marker in name:
-            return name.split(marker, 1)[0]
+            return name.split(marker, 1)[0].strip()
     parts = name.split("-")
     if len(parts) >= 3:
-        return parts[0]
-    return fallback or name
+        return parts[0].strip()
+    return (fallback or name).strip()
 
 
 def settings_from_env(base: PipelineSettings | None = None) -> PipelineSettings:
