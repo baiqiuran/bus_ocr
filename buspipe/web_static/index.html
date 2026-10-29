@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>站序 · 站牌 OCR 工作台</title>
+  <link rel="stylesheet" href="/tokens.css"><link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">跳到识别结果</a>
+<aside class="rail">
+  <a class="brand" href="/" aria-label="站序工作台首页"><span class="brand-mark" aria-hidden="true">站</span><span>站序<small>站牌识别</small></span></a>
+  <button id="menu-toggle" class="menu-toggle" aria-expanded="false" aria-label="展开工作空间菜单">☰</button>
+  <button id="new-job" class="primary wide">＋ 新建批次</button>
+  <nav aria-label="数据视图">
+    <button id="all-view" class="nav-item active"><span>▦　全部记录</span><span id="nav-count">—</span></button>
+    <button id="review-view" class="nav-item"><span>◎　待复核记录</span><span id="review-count">—</span></button>
+  </nav>
+  <div class="rail-label"><span>识别批次</span><button id="refresh" class="icon-button" aria-label="刷新批次">↻</button></div>
+  <div id="jobs" class="job-list" aria-label="批次列表"><p class="muted">正在读取批次…</p></div>
+  <div class="rail-bottom"><button id="import-job" class="text-button">↳ 导入结果</button><div class="local-note"><span class="dot"></span>本地运行</div></div>
+</aside>
+<div class="shell">
+
+  <main id="main">
+    <section class="heading"><div><h1 id="page-title">站牌数据</h1></div><div class="heading-actions"><button id="export" hidden>导出 CSV ↗</button></div></section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section id="stats" class="stats" aria-label="数据库统计">
+      <div><span>来源记录</span><strong id="stat-records">—</strong></div>
+      <div><span>站名 + 方位</span><strong id="stat-stations">—</strong></div>
+      <div><span>线路</span><strong id="stat-routes">—</strong></div>
+      <div><span>待复核记录</span><strong id="stat-review">—</strong></div>
+    </section>
+    <section id="batch-panel" class="batch-panel" hidden aria-label="当前批次">
+      <div class="batch-top"><div><h2 id="batch-name"></h2></div><span id="batch-status" class="badge"></span></div>
+      <details class="batch-source"><summary>来源目录</summary><p id="batch-path" class="path"></p></details><div id="batch-counts" class="batch-counts"></div><progress id="progress" max="100" value="0" aria-label="图片处理进度"></progress>
+      <div class="batch-bottom"><p id="batch-message"></p><div class="actions"><button id="sample">抽样 3 张</button><button id="start" class="primary">开始整批识别 →</button><button id="issues">异常与复核</button></div></div>
+      <div id="batch-error" class="error-block" hidden></div>
+    </section>
+    <section class="results" aria-label="识别结果">
+      <div class="results-title"><h2>识别结果 <span id="result-count" class="count">—</span></h2></div>
+      <div class="toolbar"><div class="search-field"><label class="sr-only" for="search">查找记录</label><input id="search" type="search" placeholder="搜索站名、线路或图片" autocomplete="off"></div><div><label class="sr-only" for="direction">站点方位</label><select id="direction"><option value="">全部方位</option><option>东</option><option>南</option><option>西</option><option>北</option><option>上客点</option><option>下客点</option><option>场站</option><option>未知</option></select></div><div><label class="sr-only" for="review-filter">记录状态</label><select id="review-filter"><option value="">全部状态</option><option value="1">待复核</option></select></div></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">线路</th><th scope="col">当前站点 / 方位</th><th scope="col">线路走向</th><th scope="col">来源图片</th><th scope="col">状态</th><th scope="col"><span class="sr-only">详情</span></th></tr></thead><tbody id="rows"></tbody></table></div>
+      <div id="empty" class="empty" hidden><span class="empty-mark" aria-hidden="true">⌁</span><h3 id="empty-title">还没有站牌记录</h3><p id="empty-copy">创建识别批次，或导入已有的 endpoints 结果。</p><button id="empty-action" class="primary">新建识别批次</button></div>
+      <div class="pagination"><span id="page-info">正在读取本地数据库…</span><div><button id="prev" aria-label="上一页">←</button><button id="next" aria-label="下一页">→</button></div></div>
+    </section>
+
+    <details class="storage"><summary>数据说明</summary><p>方位取自文件名，走向取自首末站。已提取不代表人工确认。</p><p id="database" class="path"></p></details>
+  </main>
+</div>
+<dialog id="create-dialog"><form id="create-form"><div class="dialog-heading"><div><h2 id="form-title">新建批次</h2></div><button type="button" class="icon-button close" aria-label="关闭">×</button></div><p id="form-copy">扫描目录及子目录中的 JPG / JPEG 图片。</p><label for="source">本地目录</label><input id="source" required placeholder="E:\公交站牌\安平小区" aria-describedby="source-help form-error"><p id="source-help" class="helper">粘贴本机资源管理器中的完整目录路径。</p><div id="mode-note" class="mode-note"><strong>本地识别 · 仅提取首末站</strong><p>文件名格式：站名-方位-页号.jpg</p></div><p id="form-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="close">取消</button><button type="submit" class="primary" id="submit-job">扫描目录 →</button></div></form></dialog>
+<dialog id="detail-dialog" class="detail-dialog"><div class="dialog-heading"><div><h2 id="detail-title">来源详情</h2></div><button class="icon-button close" aria-label="关闭">×</button></div><div id="detail-content"></div></dialog>
+<dialog id="issues-dialog" class="issues-dialog"><div class="dialog-heading"><div><h2>图片状态与复核项</h2></div><button class="icon-button close" aria-label="关闭">×</button></div><p class="muted">处理异常与待核对的识别内容。</p><div id="issues-content"></div></dialog>
+</body></html>

@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-28",
+  "framework": "Python CLI; no existing frontend framework or design system",
+  "evidence": ["buspipe/cli.py:138", "buspipe/report.py:172", "buspipe/store.py:63"],
+  "existing_fonts": null,
+  "existing_palette": null,
+  "existing_spacing": null,
+  "motion": "cut",
+  "implementation": "Additive standard-library HTTP server with vanilla HTML/CSS/JS",
+  "preserved": "Pipeline, geometry thresholds, exports, review semantics",
+  "introduced": "Workbench layout, Cobalt tokens, local SQLite result index"
+}

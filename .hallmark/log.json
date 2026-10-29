@@ -1,0 +1,48 @@
+[
+  {
+    "date": "2026-10-28",
+    "macrostructure": "Workbench",
+    "theme": "Cobalt",
+    "nav": "N3 adapted side-rail",
+    "footer": "data notes disclosure",
+    "brief": "User-requested simplification: compact data header, inline stats, endpoint labels and folded source metadata",
+    "scope": "In-place refinement of existing workbench; preserve theme and workflows",
+    "enrichment": "none",
+    "viewports": [
+      320,
+      375,
+      414,
+      768,
+      1280,
+      1440
+    ]
+  },
+  {
+    "date": "2026-10-28",
+    "macrostructure": "Workbench",
+    "theme": "Cobalt",
+    "enrichment": "none; actual poster images in source detail",
+    "nav": "N3 adapted functional batch side-rail; mobile disclosure",
+    "footer": "Ft2",
+    "brief": "Local bus-sign OCR batch workbench with SQLite provenance",
+    "adaptations": "Functional app, no marketing hero; offline Windows display/body/mono font tokens",
+    "critique": {
+      "philosophy": 4,
+      "hierarchy": 4,
+      "execution": 4,
+      "specificity": 5,
+      "restraint": 5,
+      "variety": 4
+    },
+    "viewports": [
+      320,
+      375,
+      414,
+      768,
+      1024,
+      1280,
+      1440,
+      1920
+    ]
+  }
+]
